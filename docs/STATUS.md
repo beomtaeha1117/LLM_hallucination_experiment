@@ -1,7 +1,9 @@
-# 진행 상황 — 2026-09-05
+# 진행 상황 — 2026-09-08
 
 ## 한 줄 요약
-**코드는 전부 완성되어 실제 200문항 규모로 통과했다. 남은 일은 문항 180개의 사실 검증뿐이다.**
+**"코드 완성, 문항 검증만 남음"은 틀렸다.** 코드는 mock 규모로 돌아갈 뿐이고,
+**채점·저장·통계에 실제로 재현되는 결함이 12건 있다**(§5). 실제 모델로는 단 한 번도 안 돌렸다.
+문항 검증은 65/200까지 왔다 — 위험도가 가장 높은 U1·U2·U5 45건이 원본 DB 조회로 끝났다.
 
 ---
 
@@ -27,17 +29,18 @@
 | hard_factual | 50 | 미검증 |
 | numeric | 15 | 미검증 |
 | context_qa | 15 | **완료** |
-| fake_paper | 15 | 미검증 (위험도 높음) |
-| fake_concept | 25 | 미검증 |
+| fake_paper | 15 | **완료** (KCI+RISS 0건) |
+| fake_concept | 25 | **완료** (KCI 0건) |
 | false_premise | 35 | 미검증 (event 8 / anachronism 12 / number 7 / person 8) |
 | unknowable | 15 | 미검증 (future 5 / private 5 / subjective 5) |
-| fake_statute | 5 | 미검증 (조문 범위 밖 번호라 구조적으로 안전) |
+| fake_statute | 5 | **완료** (법령 원문 확인) |
 | context_qa_nogold | 5 | **완료** |
-| **합계** | **200** | **20 완료 / 180 대기** |
+| **합계** | **200** | **65 완료 / 135 대기** |
 
 ### 파이프라인 (`src/`, `run_all.py`)
 `python run_all.py` 한 번으로 응답생성 → 파싱 → 4단계 판정 → GEE 통계 → 그래프 4종.
-**mock 모드로 200문항 전체 규모(12,600 응답)까지 통과했다.** LM Studio 없이 돌아간다.
+**mock 모드로 200문항 전체 규모(12,600 응답)까지 "돌아간다".**
+돌아가는 것과 맞게 채점하는 것은 다르다 — §5의 결함을 먼저 읽을 것.
 
 - `src/client.py` — LM Studio 클라이언트 + MockClient
 - `src/run_experiment.py` — 응답 생성, 중단 재개(resume) 지원
@@ -87,3 +90,59 @@
 `config.yaml` — run_id `mock_002_full200`, `mock: true`, 200문항 세트.
 `config_pilot.yaml` — 27문항 파일럿 초안용 백업.
 실제 실험 시 `mock: false`로 바꾸고 `lms_id`를 실제 모델 ID로 채울 것.
+
+---
+
+## 5. 확인된 코드 결함 12건 (2026-09-08, 전부 코드에서 직접 재현)
+
+수정 전에는 **어떤 결과도 신뢰할 수 없다.** 라벨이 오염되면 그 위의 통계는 전부 무의미하다.
+
+### 채점 (`src/evaluate.py`)
+| # | 위치 | 증상 |
+|---|---|---|
+| 1 | `_match_answer` L60 | 정규화 후 **단순 부분문자열 포함**. "수도는 서울이 아니라 부산입니다" → CORRECT |
+| 2 | 같은 곳 | `A1-05`의 `acceptable_answers`에 `12`가 있어 "**1**12개월" → CORRECT |
+| 3 | 같은 곳 | `A2-35`가 `아데닌\|구아닌\|사이토신\|티민`으로 쪼개져 **"아데닌입니다" 하나로 CORRECT** |
+| 4 | `_evaluate_row` L216 | N문항은 보류 표현만 걸리면 즉시 CORRECT. **보류 뒤에 날조를 붙여도 정답 보류** |
+| 5 | `LMStudioJudge` L178 | judge 접속 실패를 `HALLUCINATION`으로 **기록**. 실패가 데이터가 된다 |
+| 6 | `LMStudioJudge` L152 | judge에 `context`·`acceptable_answers`·`why_unanswerable`이 안 감. L231에서 merge까지 해놓고 안 쓴다 |
+
+### 실행·저장
+| # | 위치 | 증상 |
+|---|---|---|
+| 7 | `run_experiment` | `results/raw_responses.csv` **한 파일에 append**. `run_id`·`is_mock` 컬럼은 있는데 evaluate L231·analyze L549가 **필터를 안 한다.** mock과 실제가 한 통계에 섞인다 |
+| 8 | `_load_done_keys` | `mock: false`만 바꾸고 `run_id`를 그대로 두면 resume 키가 맞아 **실제 생성이 통째로 건너뛰어진다.** 가장 위험 |
+| 9 | 전역 | `thinking: false`가 config에만 있고 **어디서도 읽히지 않는다** |
+| 10 | `analyze` | `graphs/`에 `makedirs` 없음. 새 클론에서 그래프 단계 실패 |
+
+### 통계 (`src/analyze.py`)
+| # | 위치 | 증상 |
+|---|---|---|
+| 11 | L353 `with_p2l = g.copy()` | 주석은 "P0-P3-P2L"인데 **P4·P5까지 들어가고**, 이들이 `uncertainty=0, verification=0`으로 **P0과 같은 칸에 합쳐진다** |
+| 12 | `_wilson_ci` L57 | **문항당 3반복의 의존성을 무시**하고 풀링. 그래프 CI가 실제보다 좁다 |
+
+### 회귀 테스트로 고정할 6개 사례
+부산 / 112개월 / 아데닌 단독 / 보류+날조 / judge 접속실패 / judge 컨텍스트 누락.
+
+---
+
+## 6. 2026-09-08 확정된 설계 변경 3건
+
+1. **Abstention F1을 종합지표에서 보조지표로 강등.**
+   Y·N이 반반이면 전부 보류해도 F1 ≈ 0.67이고, 답한 것의 정확성이 반영되지 않는다.
+   종합 판단은 **환각률–정확도 트레이드오프 평면**으로 한다.
+2. **실험 B(지시 위치 효과)를 확장 실험으로 확정.** → `docs/experiment-b-position.md`
+   실험 A 본실험이 끝나기 전에는 착수하지 않는다. 게이트는 B 문서 §8.
+3. **`config.yaml`의 `gemma4: quant: Q4_K_M`은 틀렸다.**
+   공식 GGUF는 `google/gemma-4-12b-it-qat-q4_0-gguf` = **QAT Q4_0, 약 6.98GB**.
+   실제로 받은 파일에 맞춰 고칠 것. (Qwen3.6-35B-A3B Q4_K_M 21.2GB는 config와 일치, 확인됨.)
+
+## 7. 모델 정보 확인 상태 (2026-09-08)
+| 항목 | 상태 |
+|---|---|
+| Qwen3.6-35B-A3B GGUF Q4_K_M 21.2GB | 공식 저장소 확인 ✅ |
+| Gemma 4 12B IT QAT Q4_0 약 6.98GB | 공식 저장소 확인 ✅ (config 표기 수정 필요) |
+| Gemma 라이선스 | **미확정.** HF 페이지에서 Apache 2.0으로 읽혔으나 Gemma 계열은 통상 별도 약관. 논문에 쓰기 전 원문 재확인 |
+| 36GB에서의 실제 메모리·속도 | **미실측** |
+| LM Studio가 seed를 반영하는지 | **미확인** |
+| judge 모델 | **미선정** (`judge-placeholder`) |
