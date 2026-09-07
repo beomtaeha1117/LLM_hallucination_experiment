@@ -1,0 +1,201 @@
+﻿question_id,question_type,question_subtype,answerable,question,context,ground_truth,acceptable_answers,why_unanswerable,verify_action,verified
+A1-01,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-02,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-03,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-04,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-05,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-06,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-07,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-08,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-09,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-10,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-11,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-12,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-13,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-14,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-15,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-16,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-17,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-18,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-19,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A1-20,easy_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-01,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-02,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-03,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-04,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-05,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-06,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-07,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-08,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-09,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-10,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-11,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-12,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-13,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-14,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-15,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-16,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-17,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-18,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-19,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-20,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-21,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-22,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-23,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-24,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-25,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-26,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-27,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-28,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-29,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-30,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-31,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-32,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-33,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-34,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-35,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-36,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-37,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-38,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-39,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-40,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-41,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-42,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-43,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-44,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-45,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-46,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-47,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-48,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-49,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A2-50,hard_factual,,Y,,,,,,교과서·국가기관·공식 DB 등 출처 URL 기록,NO
+A3-01,numeric,,Y,,,,,,허용오차 규칙 정할 것(예: ±1%),NO
+A3-02,numeric,,Y,,,,,,허용오차 규칙 정할 것(예: ±1%),NO
+A3-03,numeric,,Y,,,,,,허용오차 규칙 정할 것(예: ±1%),NO
+A3-04,numeric,,Y,,,,,,허용오차 규칙 정할 것(예: ±1%),NO
+A3-05,numeric,,Y,,,,,,허용오차 규칙 정할 것(예: ±1%),NO
+A3-06,numeric,,Y,,,,,,허용오차 규칙 정할 것(예: ±1%),NO
+A3-07,numeric,,Y,,,,,,허용오차 규칙 정할 것(예: ±1%),NO
+A3-08,numeric,,Y,,,,,,허용오차 규칙 정할 것(예: ±1%),NO
+A3-09,numeric,,Y,,,,,,허용오차 규칙 정할 것(예: ±1%),NO
+A3-10,numeric,,Y,,,,,,허용오차 규칙 정할 것(예: ±1%),NO
+A3-11,numeric,,Y,,,,,,허용오차 규칙 정할 것(예: ±1%),NO
+A3-12,numeric,,Y,,,,,,허용오차 규칙 정할 것(예: ±1%),NO
+A3-13,numeric,,Y,,,,,,허용오차 규칙 정할 것(예: ±1%),NO
+A3-14,numeric,,Y,,,,,,허용오차 규칙 정할 것(예: ±1%),NO
+A3-15,numeric,,Y,,,,,,허용오차 규칙 정할 것(예: ±1%),NO
+A4-01,context_qa,,Y,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+A4-02,context_qa,,Y,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+A4-03,context_qa,,Y,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+A4-04,context_qa,,Y,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+A4-05,context_qa,,Y,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+A4-06,context_qa,,Y,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+A4-07,context_qa,,Y,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+A4-08,context_qa,,Y,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+A4-09,context_qa,,Y,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+A4-10,context_qa,,Y,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+A4-11,context_qa,,Y,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+A4-12,context_qa,,Y,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+A4-13,context_qa,,Y,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+A4-14,context_qa,,Y,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+A4-15,context_qa,,Y,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+U1-01,fake_paper,,N,,,,,,RISS·구글학술 검색 0건 확인 필요(우연히 존재하면 저자명·제목 교체),NO
+U1-02,fake_paper,,N,,,,,,RISS·구글학술 검색 0건 확인 필요(우연히 존재하면 저자명·제목 교체),NO
+U1-03,fake_paper,,N,,,,,,RISS·구글학술 검색 0건 확인 필요(우연히 존재하면 저자명·제목 교체),NO
+U1-04,fake_paper,,N,,,,,,RISS·구글학술 검색 0건 확인 필요(우연히 존재하면 저자명·제목 교체),NO
+U1-05,fake_paper,,N,,,,,,RISS·구글학술 검색 0건 확인 필요(우연히 존재하면 저자명·제목 교체),NO
+U1-06,fake_paper,,N,,,,,,RISS·구글학술 검색 0건 확인 필요(우연히 존재하면 저자명·제목 교체),NO
+U1-07,fake_paper,,N,,,,,,RISS·구글학술 검색 0건 확인 필요(우연히 존재하면 저자명·제목 교체),NO
+U1-08,fake_paper,,N,,,,,,RISS·구글학술 검색 0건 확인 필요(우연히 존재하면 저자명·제목 교체),NO
+U1-09,fake_paper,,N,,,,,,RISS·구글학술 검색 0건 확인 필요(우연히 존재하면 저자명·제목 교체),NO
+U1-10,fake_paper,,N,,,,,,RISS·구글학술 검색 0건 확인 필요(우연히 존재하면 저자명·제목 교체),NO
+U1-11,fake_paper,,N,,,,,,RISS·구글학술 검색 0건 확인 필요(우연히 존재하면 저자명·제목 교체),NO
+U1-12,fake_paper,,N,,,,,,RISS·구글학술 검색 0건 확인 필요(우연히 존재하면 저자명·제목 교체),NO
+U1-13,fake_paper,,N,,,,,,RISS·구글학술 검색 0건 확인 필요(우연히 존재하면 저자명·제목 교체),NO
+U1-14,fake_paper,,N,,,,,,RISS·구글학술 검색 0건 확인 필요(우연히 존재하면 저자명·제목 교체),NO
+U1-15,fake_paper,,N,,,,,,RISS·구글학술 검색 0건 확인 필요(우연히 존재하면 저자명·제목 교체),NO
+U2-01,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-02,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-03,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-04,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-05,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-06,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-07,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-08,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-09,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-10,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-11,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-12,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-13,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-14,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-15,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-16,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-17,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-18,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-19,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-20,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-21,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-22,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-23,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-24,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U2-25,fake_concept,,N,,,,,,구글·RISS 검색 0건 확인,NO
+U5-01,fake_statute,,N,,,,,,국가법령정보센터에서 조항 존재 여부 확인 필수,NO
+U5-02,fake_statute,,N,,,,,,국가법령정보센터에서 조항 존재 여부 확인 필수,NO
+U5-03,fake_statute,,N,,,,,,국가법령정보센터에서 조항 존재 여부 확인 필수,NO
+U5-04,fake_statute,,N,,,,,,국가법령정보센터에서 조항 존재 여부 확인 필수,NO
+U5-05,fake_statute,,N,,,,,,국가법령정보센터에서 조항 존재 여부 확인 필수,NO
+U6-01,context_qa_nogold,,N,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+U6-02,context_qa_nogold,,N,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+U6-03,context_qa_nogold,,N,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+U6-04,context_qa_nogold,,N,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+U6-05,context_qa_nogold,,N,,,,,,지문 자체가 근거이므로 외부 검증 불필요,NO
+U3-01,false_premise,event,N,,,,,,해당 사건·저술 등이 실제로 존재하는지 검색으로 확인 필수,NO
+U3-02,false_premise,event,N,,,,,,해당 사건·저술 등이 실제로 존재하는지 검색으로 확인 필수,NO
+U3-03,false_premise,event,N,,,,,,해당 사건·저술 등이 실제로 존재하는지 검색으로 확인 필수,NO
+U3-04,false_premise,event,N,,,,,,해당 사건·저술 등이 실제로 존재하는지 검색으로 확인 필수,NO
+U3-05,false_premise,event,N,,,,,,해당 사건·저술 등이 실제로 존재하는지 검색으로 확인 필수,NO
+U3-06,false_premise,event,N,,,,,,해당 사건·저술 등이 실제로 존재하는지 검색으로 확인 필수,NO
+U3-07,false_premise,event,N,,,,,,해당 사건·저술 등이 실제로 존재하는지 검색으로 확인 필수,NO
+U3-08,false_premise,event,N,,,,,,해당 사건·저술 등이 실제로 존재하는지 검색으로 확인 필수,NO
+U3-09,false_premise,anachronism,N,,,,,,연대만 대조하면 되므로 검증이 쉬움(예: 기관 창설연도 확인),NO
+U3-10,false_premise,anachronism,N,,,,,,연대만 대조하면 되므로 검증이 쉬움(예: 기관 창설연도 확인),NO
+U3-11,false_premise,anachronism,N,,,,,,연대만 대조하면 되므로 검증이 쉬움(예: 기관 창설연도 확인),NO
+U3-12,false_premise,anachronism,N,,,,,,연대만 대조하면 되므로 검증이 쉬움(예: 기관 창설연도 확인),NO
+U3-13,false_premise,anachronism,N,,,,,,연대만 대조하면 되므로 검증이 쉬움(예: 기관 창설연도 확인),NO
+U3-14,false_premise,anachronism,N,,,,,,연대만 대조하면 되므로 검증이 쉬움(예: 기관 창설연도 확인),NO
+U3-15,false_premise,anachronism,N,,,,,,연대만 대조하면 되므로 검증이 쉬움(예: 기관 창설연도 확인),NO
+U3-16,false_premise,anachronism,N,,,,,,연대만 대조하면 되므로 검증이 쉬움(예: 기관 창설연도 확인),NO
+U3-17,false_premise,anachronism,N,,,,,,연대만 대조하면 되므로 검증이 쉬움(예: 기관 창설연도 확인),NO
+U3-18,false_premise,anachronism,N,,,,,,연대만 대조하면 되므로 검증이 쉬움(예: 기관 창설연도 확인),NO
+U3-19,false_premise,anachronism,N,,,,,,연대만 대조하면 되므로 검증이 쉬움(예: 기관 창설연도 확인),NO
+U3-20,false_premise,anachronism,N,,,,,,연대만 대조하면 되므로 검증이 쉬움(예: 기관 창설연도 확인),NO
+U3-21,false_premise,number,N,,,,,,전제된 수치가 사실과 다른지 교과서 등으로 확인,NO
+U3-22,false_premise,number,N,,,,,,전제된 수치가 사실과 다른지 교과서 등으로 확인,NO
+U3-23,false_premise,number,N,,,,,,전제된 수치가 사실과 다른지 교과서 등으로 확인,NO
+U3-24,false_premise,number,N,,,,,,전제된 수치가 사실과 다른지 교과서 등으로 확인,NO
+U3-25,false_premise,number,N,,,,,,전제된 수치가 사실과 다른지 교과서 등으로 확인,NO
+U3-26,false_premise,number,N,,,,,,전제된 수치가 사실과 다른지 교과서 등으로 확인,NO
+U3-27,false_premise,number,N,,,,,,전제된 수치가 사실과 다른지 교과서 등으로 확인,NO
+U3-28,false_premise,person,N,,,,,,실제 인물명을 확인한 뒤 문항 속 인물이 존재하지 않는지 검색,NO
+U3-29,false_premise,person,N,,,,,,실제 인물명을 확인한 뒤 문항 속 인물이 존재하지 않는지 검색,NO
+U3-30,false_premise,person,N,,,,,,실제 인물명을 확인한 뒤 문항 속 인물이 존재하지 않는지 검색,NO
+U3-31,false_premise,person,N,,,,,,실제 인물명을 확인한 뒤 문항 속 인물이 존재하지 않는지 검색,NO
+U3-32,false_premise,person,N,,,,,,실제 인물명을 확인한 뒤 문항 속 인물이 존재하지 않는지 검색,NO
+U3-33,false_premise,person,N,,,,,,실제 인물명을 확인한 뒤 문항 속 인물이 존재하지 않는지 검색,NO
+U3-34,false_premise,person,N,,,,,,실제 인물명을 확인한 뒤 문항 속 인물이 존재하지 않는지 검색,NO
+U3-35,false_premise,person,N,,,,,,실제 인물명을 확인한 뒤 문항 속 인물이 존재하지 않는지 검색,NO
+U4-01,unknowable,future,N,,,,,,원리적으로 답변 불가함을 확인(미래 시행/비공개 정보/주관적 합의 등),NO
+U4-02,unknowable,future,N,,,,,,원리적으로 답변 불가함을 확인(미래 시행/비공개 정보/주관적 합의 등),NO
+U4-03,unknowable,future,N,,,,,,원리적으로 답변 불가함을 확인(미래 시행/비공개 정보/주관적 합의 등),NO
+U4-04,unknowable,future,N,,,,,,원리적으로 답변 불가함을 확인(미래 시행/비공개 정보/주관적 합의 등),NO
+U4-05,unknowable,future,N,,,,,,원리적으로 답변 불가함을 확인(미래 시행/비공개 정보/주관적 합의 등),NO
+U4-06,unknowable,private,N,,,,,,원리적으로 답변 불가함을 확인(미래 시행/비공개 정보/주관적 합의 등),NO
+U4-07,unknowable,private,N,,,,,,원리적으로 답변 불가함을 확인(미래 시행/비공개 정보/주관적 합의 등),NO
+U4-08,unknowable,private,N,,,,,,원리적으로 답변 불가함을 확인(미래 시행/비공개 정보/주관적 합의 등),NO
+U4-09,unknowable,private,N,,,,,,원리적으로 답변 불가함을 확인(미래 시행/비공개 정보/주관적 합의 등),NO
+U4-10,unknowable,private,N,,,,,,원리적으로 답변 불가함을 확인(미래 시행/비공개 정보/주관적 합의 등),NO
+U4-11,unknowable,subjective,N,,,,,,원리적으로 답변 불가함을 확인(미래 시행/비공개 정보/주관적 합의 등),NO
+U4-12,unknowable,subjective,N,,,,,,원리적으로 답변 불가함을 확인(미래 시행/비공개 정보/주관적 합의 등),NO
+U4-13,unknowable,subjective,N,,,,,,원리적으로 답변 불가함을 확인(미래 시행/비공개 정보/주관적 합의 등),NO
+U4-14,unknowable,subjective,N,,,,,,원리적으로 답변 불가함을 확인(미래 시행/비공개 정보/주관적 합의 등),NO
+U4-15,unknowable,subjective,N,,,,,,원리적으로 답변 불가함을 확인(미래 시행/비공개 정보/주관적 합의 등),NO

@@ -1,0 +1,8 @@
+openai
+pandas
+numpy
+scipy
+statsmodels
+matplotlib
+pyyaml
+tqdm

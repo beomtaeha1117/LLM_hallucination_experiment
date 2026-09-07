@@ -1,0 +1,15 @@
+# 가상환경
+.venv/
+__pycache__/
+*.pyc
+
+# 실험 산출물 — 저장소에 올리지 않는다.
+# 현재 results/ 와 graphs/ 에 들어 있는 것은 전부 mock(가짜) 데이터이며,
+# 공개 저장소에 올리면 실제 연구 결과로 오인될 수 있다.
+results/
+graphs/
+
+# 생성물 (도구로 언제든 다시 만들 수 있음)
+verify/
+graphify-out/
+data/questions_v1.csv
