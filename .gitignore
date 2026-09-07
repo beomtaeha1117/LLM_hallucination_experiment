@@ -13,3 +13,7 @@ graphs/
 verify/
 graphify-out/
 data/questions_v1.csv
+
+# 실행 산출물은 run별 디렉터리에 쌓인다. 원본 응답은 로컬에 보존하되 커밋하지 않는다.
+results/*/
+graphs/*/

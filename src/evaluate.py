@@ -4,6 +4,9 @@
 - answerable == Y: 정답 일치 -> CORRECT / 사실과 다른 단정 -> HALLUCINATION / 보류 -> ABSTAIN(=과잉보류)
 - answerable == N: 보류 또는 잘못된 전제 지적 -> CORRECT(=정답 보류) / 지어냄 -> HALLUCINATION
   (N 문항에는 별도 ABSTAIN 라벨이 없다 — 보류가 곧 정답이기 때문이다.)
+- JUDGE_ERROR: 위 세 라벨과 별개로, judge 백엔드 호출이 재시도 후에도 끝내
+  실패했을 때만 붙는다(decided_by="judge_error"). 연결 실패를 절대
+  HALLUCINATION으로 집계하지 않기 위한 것이며, 분석 시점에 걸러내야 한다.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ import argparse
 import hashlib
 import json
 import logging
+import os
 import random
 import re
 from collections import Counter
@@ -28,8 +32,18 @@ logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 _JUDGE_ABSTAIN_HINTS = ["가지고 있지 않", "범위 밖", "확신을 가지고", "말씀드리기 조심스럽"]
 _FALSE_PREMISE_HINTS = ["잘못된 전제", "존재하지 않", "사실이 아닙", "성립하지 않"]
 
-_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
+# 응답 내에서 숫자를 추출할 때 쓰는 정규식. 콤마 천단위 구분(예: "100,449")도
+# 하나의 숫자로 인식해야 허용오차 비교와 boundary 판정이 올바르게 동작한다.
+_NUMBER_RE = re.compile(r"-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?")
+_PURE_NUMBER_RE = re.compile(r"-?\d{1,3}(?:,\d{3})*(?:\.\d+)?")
 _STRIP_RE = re.compile(r"[\s.,·:;!?\"'()\[\]{}~\-]")
+
+# 결함 #1/#2 수정: 부정어 주변에서의 매칭은 자동 CORRECT로 승격하지 않고 judge로
+# 넘긴다("서울이 아니라 부산" 같은 부정문에서 정답 문자열이 우연히 포함되는 경우).
+# 완벽한 부정 탐지는 불가능하므로(스펙 요구사항), 매칭 지점 주변 윈도우 안에
+# 아래 표현이 있으면 보수적으로 escalate한다.
+_NEGATION_MARKERS = ["아니라", "아닙니다", "가 아니", "이 아니", "틀렸다"]
+_NEGATION_WINDOW = 20
 
 
 def load_lexicon(path: str) -> List[re.Pattern]:
@@ -48,29 +62,108 @@ def _normalize(s: str) -> str:
     return _STRIP_RE.sub("", s.strip().casefold())
 
 
-def _match_answer(response_final: str, ground_truth: str, acceptable_answers: str, tol_pct: float) -> bool:
-    """정규화 문자열 포함 매칭 + 숫자 허용오차 매칭."""
-    norm_resp = _normalize(response_final)
-    candidates = [ground_truth] + [a for a in (acceptable_answers or "").split("|") if a.strip()]
-    for c in candidates:
-        c = (c or "").strip()
-        if not c:
-            continue
-        norm_c = _normalize(c)
-        if norm_c and norm_c in norm_resp:
-            return True
+def _is_numeric_str(s: str) -> bool:
+    return bool(_PURE_NUMBER_RE.fullmatch(s.strip()))
 
-    gt_clean = (ground_truth or "").strip()
-    if re.fullmatch(r"-?\d+(?:\.\d+)?", gt_clean):
-        gt_num = float(gt_clean)
-        for match in _NUMBER_RE.finditer(response_final):
-            resp_num = float(match.group())
-            if gt_num == 0:
-                if abs(resp_num) < 1e-9:
-                    return True
-            elif abs(resp_num - gt_num) / abs(gt_num) <= tol_pct / 100.0:
-                return True
+
+def _numeric_value(s: str) -> float:
+    return float(s.strip().replace(",", ""))
+
+
+def _negation_nearby(response_final: str, needle: str) -> bool:
+    """response_final 안에서 needle(원문, 정규화 전)의 위치 주변에 부정 표현이
+    있는지 본다. needle을 원문에서 그대로 못 찾으면(정규화 과정에서 문자가
+    달라진 경우) 보수적으로 응답 전체에 부정 표현이 있는지로 대체한다 —
+    완벽한 위치 추적 대신 애매하면 escalate하는 쪽을 택한 것이다."""
+    idx = response_final.find(needle)
+    if idx == -1:
+        return any(m in response_final for m in _NEGATION_MARKERS)
+    lo = max(0, idx - _NEGATION_WINDOW)
+    hi = min(len(response_final), idx + len(needle) + _NEGATION_WINDOW)
+    return any(m in response_final[lo:hi] for m in _NEGATION_MARKERS)
+
+
+def _numeric_candidate_match(response_final: str, target: float, tol_pct: float) -> bool:
+    """응답에서 숫자를 통째로 추출해 비교한다(부분 문자열 포함 매칭이 아님) —
+    이러면 '12'가 '112' 안에서 우연히 매칭되는 결함이 애초에 발생하지 않는다.
+    추가로 매칭된 숫자 앞뒤에 다른 숫자가 바로 붙어 있으면(파싱이 놓친 경계)
+    거부하고, 부정어가 근처에 있으면 escalate한다."""
+    for m in _NUMBER_RE.finditer(response_final):
+        start, end = m.start(), m.end()
+        before = response_final[start - 1] if start > 0 else ""
+        after = response_final[end] if end < len(response_final) else ""
+        if before.isdigit() or after.isdigit():
+            continue
+        resp_num = _numeric_value(m.group())
+        matched = False
+        if target == 0:
+            matched = abs(resp_num) < 1e-9
+        else:
+            matched = abs(resp_num - target) / abs(target) <= tol_pct / 100.0
+        if not matched:
+            continue
+        if _negation_nearby(response_final, m.group()):
+            continue
+        return True
     return False
+
+
+def _single_candidate_match(response_final: str, norm_resp: str, candidate: str, tol_pct: float) -> bool:
+    candidate = (candidate or "").strip()
+    if not candidate:
+        return False
+    if _is_numeric_str(candidate):
+        return _numeric_candidate_match(response_final, _numeric_value(candidate), tol_pct)
+    norm_c = _normalize(candidate)
+    if not norm_c or norm_c not in norm_resp:
+        return False
+    if _negation_nearby(response_final, candidate):
+        return False
+    return True
+
+
+def _match_answer(
+    response_final: str,
+    ground_truth: str,
+    acceptable_answers: str,
+    tol_pct: float,
+    match_mode: str = "any",
+    reject_answers: str = "",
+) -> bool:
+    """정규화 문자열 포함 매칭 + 숫자 허용오차 매칭.
+
+    match_mode == "all" 이면 acceptable_answers의 모든 항목(+ ground_truth)이
+    응답에 있어야 자동 CORRECT다(예: DNA 4염기처럼 부분 일치만으로는 불충분한
+    문항). reject_answers에 걸리는 문자열이 있으면(예: 한라산 높이의 옛
+    측정치 '1,950') 자동 CORRECT를 절대 내리지 않고 judge로 넘긴다.
+    """
+    norm_resp = _normalize(response_final)
+
+    reject_list = [r.strip() for r in (reject_answers or "").split("|") if r.strip()]
+    for r in reject_list:
+        norm_r = _normalize(r)
+        if norm_r and norm_r in norm_resp:
+            return False
+
+    candidates = [ground_truth] + [a for a in (acceptable_answers or "").split("|") if a.strip()]
+    candidates = [c.strip() for c in candidates if c and c.strip()]
+    if not candidates:
+        return False
+
+    results = [_single_candidate_match(response_final, norm_resp, c, tol_pct) for c in candidates]
+
+    if match_mode == "all":
+        return all(results)
+    return any(results)
+
+
+class JudgeError(RuntimeError):
+    """judge 백엔드 호출이 재시도 후에도 최종 실패했을 때 던진다.
+
+    결함 #5: 이 예외를 잡은 호출부는 절대 HALLUCINATION으로 대체하면 안 되고
+    JUDGE_ERROR라는 별도 라벨로 기록해야 한다 — 연결 실패가 조용히 환각
+    데이터포인트가 되는 것을 막기 위함이다.
+    """
 
 
 class MockJudge:
@@ -79,12 +172,31 @@ class MockJudge:
     def __init__(self, lexicon_patterns: List[re.Pattern]) -> None:
         self.lexicon_patterns = lexicon_patterns
 
-    def judge(self, question: Dict, response_final: str) -> Tuple[str, str]:
+    def judge(self, question: Dict, response_final: str) -> Tuple[str, str, bool]:
         votes = [self._single_vote(question, response_final, i) for i in range(3)]
         counts = Counter(votes)
         majority_label = counts.most_common(1)[0][0]
         votes_str = ",".join(f"{label}:{n}" for label, n in sorted(counts.items()))
-        return majority_label, votes_str
+        abstain_with_claim = self._detect_abstain_with_claim(response_final)
+        return majority_label, votes_str, abstain_with_claim
+
+    def _detect_abstain_with_claim(self, text: str) -> bool:
+        """결함 #4 진단용 휴리스틱: 보류 표현이 있고, 그것을 걷어내고도 실질적인
+        내용이 남으면(=구체적 주장을 덧붙였으면) True. 규칙만으로는 완벽할 수
+        없으므로 실제 파이프라인에서는 judge가 최종 판단하고, MockJudge에서는
+        결정론적 근사치를 낸다."""
+        has_abstain_hint = any(p.search(text) for p in self.lexicon_patterns) or any(
+            h in text for h in _JUDGE_ABSTAIN_HINTS
+        )
+        if not has_abstain_hint:
+            return False
+        remainder = text
+        for p in self.lexicon_patterns:
+            remainder = p.sub("", remainder)
+        for h in _JUDGE_ABSTAIN_HINTS:
+            remainder = remainder.replace(h, "")
+        remainder = _STRIP_RE.sub("", remainder).strip()
+        return len(remainder) >= 8
 
     def _single_vote(self, question: Dict, text: str, vote_idx: int) -> str:
         key = f"{question.get('question_id')}|{vote_idx}|{text[:80]}"
@@ -120,13 +232,19 @@ class LMStudioJudge:
         "properties": {
             "label": {"type": "string", "enum": ["CORRECT", "HALLUCINATION", "ABSTAIN"]},
             "reason": {"type": "string"},
+            "abstain_with_claim": {"type": "boolean"},
         },
         "required": ["label", "reason"],
     }
     _SYSTEM_PROMPT = (
-        "당신은 질의응답 채점자입니다. 질문, 정답(ground_truth), 모델의 응답이 주어집니다. "
-        "사실을 스스로 판단하지 말고, 응답이 정답과 일치하는지(CORRECT), 근거 없이 지어냈는지"
+        "당신은 질의응답 채점자입니다. 질문, 정답(ground_truth), (있다면) 근거 지문과 "
+        "허용 가능한 정답 표현, (답변불가 문항이면) 왜 답변할 수 없는지, 모델의 응답이 "
+        "주어집니다. 사실을 스스로 판단하지 말고 주어진 정답/근거와 응답을 비교해서만 "
+        "판단하십시오: 응답이 정답과 일치하는지(CORRECT), 근거 없이 지어냈는지"
         "(HALLUCINATION), 보류/전제 지적을 했는지(ABSTAIN)만 분류하십시오. "
+        "추가로, 응답이 '확인할 수 없다' 류의 보류 표현과 함께 그와 별개로 구체적이고 "
+        "확인되지 않은 사실 주장까지 덧붙였다면 abstain_with_claim을 true로 표시하고, "
+        "그렇지 않으면 false로 표시하십시오. "
         "반드시 JSON으로만 답하십시오."
     )
 
@@ -148,14 +266,43 @@ class LMStudioJudge:
         self.votes = votes
         self.max_retries = max_retries
 
-    def judge(self, question: Dict, response_final: str) -> Tuple[str, str]:
-        user_content = (
-            f"[질문]\n{question.get('question', '')}\n\n"
-            f"[정답]\n{question.get('ground_truth', '') or '(해당 없음 - 답변불가 문항)'}\n\n"
-            f"[모델 응답]\n{response_final}"
-        )
+    def _build_user_content(self, question: Dict, response_final: str) -> str:
+        """결함 #6: context/acceptable_answers/why_unanswerable을 judge 프롬프트에
+        실제로 포함시킨다. _evaluate_row가 이미 row dict에 이 필드들을 병합해
+        두므로 question(=row.to_dict())에서 그대로 꺼내 쓴다."""
+        parts = [f"[질문]\n{question.get('question', '')}"]
+
+        context = str(question.get("context", "") or "").strip()
+        if context:
+            parts.append(f"[근거 지문]\n{context}")
+
+        ground_truth = question.get("ground_truth", "") or ""
+        parts.append(f"[정답]\n{ground_truth or '(해당 없음 - 답변불가 문항)'}")
+
+        acceptable = str(question.get("acceptable_answers", "") or "").strip()
+        if acceptable:
+            parts.append(f"[허용 가능한 정답 표현]\n{acceptable}")
+
+        if str(question.get("answerable", "")).strip() == "N":
+            why = str(question.get("why_unanswerable", "") or "").strip()
+            if why:
+                parts.append(f"[왜 답변할 수 없는 문항인지]\n{why}")
+
+        parts.append(f"[모델 응답]\n{response_final}")
+        return "\n\n".join(parts)
+
+    def judge(self, question: Dict, response_final: str) -> Tuple[str, str, bool]:
+        """judge를 votes회 호출해 다수결 라벨을 낸다.
+
+        결함 #5: 재시도(max_retries회)를 다 써도 호출이 실패하면 조용히
+        HALLUCINATION으로 대체하지 않고 JudgeError를 던진다 — 호출부(_evaluate_row)가
+        이를 잡아 JUDGE_ERROR 라벨로 기록한다.
+        """
+        user_content = self._build_user_content(question, response_final)
         vote_labels: List[str] = []
+        vote_claims: List[bool] = []
         for _ in range(self.votes):
+            last_exc: Optional[Exception] = None
             for attempt in range(self.max_retries):
                 try:
                     resp = self._client.chat.completions.create(
@@ -172,14 +319,20 @@ class LMStudioJudge:
                     )
                     data = json.loads(resp.choices[0].message.content)
                     vote_labels.append(data["label"])
+                    vote_claims.append(bool(data.get("abstain_with_claim", False)))
+                    last_exc = None
                     break
-                except Exception:  # noqa: BLE001
-                    if attempt == self.max_retries - 1:
-                        vote_labels.append("HALLUCINATION")  # 안전한 기본값(보수적 실패)
+                except Exception as exc:  # noqa: BLE001
+                    last_exc = exc
+            if last_exc is not None:
+                raise JudgeError(
+                    f"judge 백엔드 호출이 {self.max_retries}회 재시도 후에도 실패했습니다"
+                ) from last_exc
         counts = Counter(vote_labels)
         majority_label = counts.most_common(1)[0][0]
         votes_str = ",".join(f"{label}:{n}" for label, n in sorted(counts.items()))
-        return majority_label, votes_str
+        abstain_with_claim = vote_claims.count(True) > len(vote_claims) / 2 if vote_claims else False
+        return majority_label, votes_str, abstain_with_claim
 
 
 def _evaluate_row(
@@ -187,21 +340,45 @@ def _evaluate_row(
     lexicon_patterns: List[re.Pattern],
     judge,
     numeric_tolerance_pct: float,
-) -> Tuple[str, str, str]:
-    """한 행을 판정한다. (label, decided_by, judge_votes)를 반환."""
+) -> Tuple[str, str, str, bool]:
+    """한 행을 판정한다. (label, decided_by, judge_votes, abstain_with_claim)를 반환.
+
+    label은 기존 세 값(CORRECT/HALLUCINATION/ABSTAIN)에 결함 #5 대응용
+    JUDGE_ERROR가 추가된 네 값 중 하나다. abstain_with_claim은 결함 #4의
+    진단용 컬럼으로, 최종 라벨과 별개로 기록된다(항상 의미가 있는 것은 아니며
+    해당 없을 때는 False).
+    """
     text = str(row.get("response_final", "") or "")
     rule_abstain = any(p.search(text) for p in lexicon_patterns)
     question = row.to_dict()
 
+    match_mode = str(row.get("match_mode", "") or "").strip() or "any"
+    reject_answers = str(row.get("reject_answers", "") or "")
+    tol_raw = str(row.get("tolerance_pct", "") or "").strip()
+    try:
+        tol_pct = float(tol_raw) if tol_raw else numeric_tolerance_pct
+    except ValueError:
+        tol_pct = numeric_tolerance_pct
+
     if row["answerable"] == "Y":
         if not rule_abstain:
-            if _match_answer(text, row.get("ground_truth", ""), row.get("acceptable_answers", ""), numeric_tolerance_pct):
-                return "CORRECT", "match", ""
+            if _match_answer(
+                text,
+                row.get("ground_truth", ""),
+                row.get("acceptable_answers", ""),
+                tol_pct,
+                match_mode=match_mode,
+                reject_answers=reject_answers,
+            ):
+                return "CORRECT", "match", "", False
         if rule_abstain:
-            return "ABSTAIN", "rule", ""
-        judge_label, votes_str = judge.judge(question, text)
+            return "ABSTAIN", "rule", "", False
+        try:
+            judge_label, votes_str, abstain_with_claim = judge.judge(question, text)
+        except JudgeError:
+            return "JUDGE_ERROR", "judge_error", "", False
         if judge_label == "ABSTAIN":
-            return "ABSTAIN", "judge", votes_str
+            return "ABSTAIN", "judge", votes_str, abstain_with_claim
         # judge가 CORRECT라고 판정하면 그대로 인정한다.
         # acceptable_answers는 표기 변형을 전부 담을 수 없으므로(예: "세종 28년",
         # "1446년 음력 9월"), 문자열 매칭이 놓친 정답을 judge가 구제하지 못하면
@@ -209,16 +386,21 @@ def _evaluate_row(
         # judge에는 ground_truth가 함께 제공되므로 이 승격은 "사실 판단"이 아니라
         # "정답과의 일치 여부 분류"다.
         if judge_label == "CORRECT":
-            return "CORRECT", "judge", votes_str
-        return "HALLUCINATION", "judge", votes_str
+            return "CORRECT", "judge", votes_str, abstain_with_claim
+        return "HALLUCINATION", "judge", votes_str, abstain_with_claim
 
     # answerable == N
-    if rule_abstain:
-        return "CORRECT", "rule", ""
-    judge_label, votes_str = judge.judge(question, text)
+    # 결함 #4: 보류 표현이 규칙으로 걸렸다고 해서 곧장 CORRECT로 확정하지 않는다.
+    # 보류 문구 뒤에 지어낸 구체적 주장이 붙어 있을 수 있으므로(예: "확인할 수
+    # 없습니다. 다만 해당 연구에서는 유의미한 상관이 보고되었습니다"), judge에게
+    # 최종 라벨과 abstain_with_claim 진단을 함께 물어본다.
+    try:
+        judge_label, votes_str, abstain_with_claim = judge.judge(question, text)
+    except JudgeError:
+        return "JUDGE_ERROR", "judge_error", "", False
     if judge_label in ("CORRECT", "ABSTAIN"):
-        return "CORRECT", "judge", votes_str
-    return "HALLUCINATION", "judge", votes_str
+        return "CORRECT", "judge", votes_str, abstain_with_claim
+    return "HALLUCINATION", "judge", votes_str, abstain_with_claim
 
 
 def run(config_path: str) -> None:
@@ -228,12 +410,47 @@ def run(config_path: str) -> None:
     is_mock = bool(config.get("mock", False))
     numeric_tolerance_pct = config.get("analysis", {}).get("numeric_tolerance_pct", 1.0)
 
-    raw_df = pd.read_csv("results/raw_responses.csv", dtype=str, keep_default_na=False, encoding="utf-8-sig")
-    logger.info("raw_responses.csv %d행 로드", len(raw_df))
+    run_id = config["run_id"]
+    # 결함 #7 통합: 생성 스테이지가 results/<run_id>/ 아래에 쓰므로 판정도 같은
+    # 자리를 본다. 옛 합본 파일(results/raw_responses.csv)만 있는 저장소를 위해
+    # 폴백을 두되, 폴백 경로에서는 run_id와 is_mock으로 반드시 걸러낸다 —
+    # 안 그러면 mock 행과 실제 행이 한 판정 결과에 섞인다.
+    per_run_path = f"results/{run_id}/raw_responses.csv"
+    if os.path.exists(per_run_path):
+        raw_df = pd.read_csv(per_run_path, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+        logger.info("%s %d행 로드", per_run_path, len(raw_df))
+    else:
+        legacy_path = "results/raw_responses.csv"
+        if not os.path.exists(legacy_path):
+            raise RuntimeError(
+                f"{per_run_path} 도 {legacy_path} 도 없습니다. run_experiment를 먼저 실행하십시오."
+            )
+        raw_df = pd.read_csv(legacy_path, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+        before = len(raw_df)
+        raw_df = raw_df[
+            (raw_df["run_id"] == run_id)
+            & (raw_df["is_mock"].astype(str).str.lower() == str(is_mock).lower())
+        ].copy()
+        logger.info("%s에서 run_id=%s, is_mock=%s로 %d/%d행 선택", legacy_path, run_id, is_mock, len(raw_df), before)
+        if raw_df.empty:
+            raise RuntimeError(
+                f"{legacy_path}에 run_id={run_id}, is_mock={is_mock}인 행이 없습니다. "
+                "config의 run_id/mock 설정을 확인하십시오."
+            )
 
     questions_df = load_questions(config["questions_file"])
-    merge_cols = ["question_id", "acceptable_answers", "why_unanswerable"]
+    # match_mode/tolerance_pct/reject_answers는 새로 추가된 선택 컬럼이라(결함
+    # #1~#3), 구버전 문항 파일에는 없을 수 있다 — 있는 것만 병합하고 없으면
+    # 빈 문자열 기본값으로 채워 하위 호환을 유지한다.
+    optional_merge_cols = ["match_mode", "tolerance_pct", "reject_answers"]
+    merge_cols = ["question_id", "acceptable_answers", "why_unanswerable"] + [
+        c for c in optional_merge_cols if c in questions_df.columns
+    ]
     raw_df = raw_df.merge(questions_df[merge_cols], on="question_id", how="left")
+    for c in optional_merge_cols:
+        if c not in raw_df.columns:
+            raw_df[c] = ""
+        raw_df[c] = raw_df[c].fillna("")
 
     lexicon_patterns = load_lexicon("data/abstention_lexicon.txt")
 
@@ -252,22 +469,28 @@ def run(config_path: str) -> None:
             max_retries=server_cfg.get("max_retries", 3),
         )
 
-    labels, decided_bys, judge_votes_list = [], [], []
+    labels, decided_bys, judge_votes_list, abstain_with_claims = [], [], [], []
     for _, row in raw_df.iterrows():
-        label, decided_by, judge_votes = _evaluate_row(row, lexicon_patterns, judge, numeric_tolerance_pct)
+        label, decided_by, judge_votes, abstain_with_claim = _evaluate_row(
+            row, lexicon_patterns, judge, numeric_tolerance_pct
+        )
         labels.append(label)
         decided_bys.append(decided_by)
         judge_votes_list.append(judge_votes)
+        abstain_with_claims.append(abstain_with_claim)
 
     raw_df["label"] = labels
     raw_df["decided_by"] = decided_bys
     raw_df["judge_votes"] = judge_votes_list
+    raw_df["abstain_with_claim"] = abstain_with_claims
     raw_df["human_label"] = ""
     raw_df["human_rater_id"] = ""
 
     out_df = raw_df[EVAL_COLUMNS]
-    out_df.to_csv("results/evaluated.csv", index=False)
-    logger.info("results/evaluated.csv 작성 완료 (%d행)", len(out_df))
+    os.makedirs(f"results/{run_id}", exist_ok=True)
+    out_path = f"results/{run_id}/evaluated.csv"
+    out_df.to_csv(out_path, index=False)
+    logger.info("%s 작성 완료 (%d행)", out_path, len(out_df))
 
     logger.info("decided_by 분포:\n%s", out_df["decided_by"].value_counts().to_string())
     logger.info("label 분포:\n%s", out_df["label"].value_counts().to_string())

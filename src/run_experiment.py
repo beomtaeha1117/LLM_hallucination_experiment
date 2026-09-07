@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import glob
+import json
 import logging
 import os
 import time
@@ -51,7 +52,13 @@ def _build_user_message(question: pd.Series) -> str:
 
 
 def _load_done_keys(raw_path: str) -> Set[Tuple]:
-    """이미 완료된 (run_id, model_key, prompt_type, question_id, repeat) 키 집합을 반환한다."""
+    """이미 완료된 (run_id, model_key, prompt_type, question_id, repeat, is_mock) 키 집합을 반환한다.
+
+    is_mock을 키에 포함하는 것은 defect 8의 방어적 조치다. raw_path가 이제
+    run_id별로 분리되어 있어 구조적으로는 섞일 수 없지만(defect 7의
+    .run_meta.json 검사가 이미 막는다), resume 로직 자체도 이중으로 안전하게
+    만들어 둔다.
+    """
     if not os.path.exists(raw_path):
         return set()
     done: Set[Tuple] = set()
@@ -66,9 +73,33 @@ def _load_done_keys(raw_path: str) -> Set[Tuple]:
             row["prompt_type"],
             row["question_id"],
             str(row["repeat"]),
+            str(row["is_mock"]),
         )
         done.add(key)
     return done
+
+
+def _check_and_record_run_meta(meta_path: str, run_id: str, is_mock: bool) -> None:
+    """run_id 디렉터리의 .run_meta.json으로 mock/real 혼입을 막는다 (defect 7).
+
+    처음 만들어지는 run_id면 현재 is_mock 값을 기록한다. 이미 기록이 있는데
+    현재 config의 is_mock과 다르면, 아무것도 쓰기 전에(=클라이언트를 만들기도
+    전에) RuntimeError로 즉시 중단한다.
+    """
+    if os.path.exists(meta_path):
+        with open(meta_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        existing_is_mock = meta.get("is_mock")
+        if existing_is_mock != is_mock:
+            raise RuntimeError(
+                f"run_id '{run_id}'는 이미 is_mock={existing_is_mock}로 기록되어 있는데, "
+                f"현재 config는 mock={is_mock}입니다. mock 데이터와 real 데이터가 같은 "
+                f"디렉터리(results/{run_id}/)에 섞이면 안 되므로 실행을 중단합니다. "
+                f"새로운 run_id를 사용하십시오."
+            )
+    else:
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump({"run_id": run_id, "is_mock": is_mock}, f, ensure_ascii=False, indent=2)
 
 
 def run(config_path: str) -> None:
@@ -77,15 +108,22 @@ def run(config_path: str) -> None:
 
     run_id = config["run_id"]
     is_mock = bool(config.get("mock", False))
+
+    # defect 7/8: mock/real 혼입 방지 검사를 그 무엇보다(질문 로드, 클라이언트
+    # 생성보다) 먼저 한다 — 어긋나면 네트워크 호출은커녕 아무 파일도 건드리기 전에
+    # 죽어야 한다.
+    raw_dir = f"results/{run_id}"
+    raw_path = f"{raw_dir}/raw_responses.csv"
+    meta_path = f"{raw_dir}/.run_meta.json"
+    os.makedirs(raw_dir, exist_ok=True)
+    _check_and_record_run_meta(meta_path, run_id, is_mock)
+
     questions_file = config["questions_file"]
     conditions = config["conditions"]
     models = config["models"]
     repeats = config["repeats"]
     seeds = config["seeds"]
     gen_cfg = config["generation"]
-
-    os.makedirs("results", exist_ok=True)
-    raw_path = "results/raw_responses.csv"
 
     questions_df = load_questions(questions_file)
     logger.info("문항 %d개 로드 완료 (%s)", len(questions_df), questions_file)
@@ -129,7 +167,7 @@ def run(config_path: str) -> None:
                     question_id = question["question_id"]
                     user_message = _build_user_message(question)
                     for repeat in range(repeats):
-                        key = (run_id, model_key, prompt_type, question_id, str(repeat))
+                        key = (run_id, model_key, prompt_type, question_id, str(repeat), str(is_mock))
                         if key in done_keys:
                             skipped += 1
                             pbar.update(1)
@@ -149,6 +187,7 @@ def run(config_path: str) -> None:
                             temperature=gen_cfg["temperature"],
                             top_p=gen_cfg["top_p"],
                             max_tokens=gen_cfg["max_tokens"],
+                            thinking=gen_cfg.get("thinking"),
                         )
 
                         response_final, format_ok = parse_final_answer(completion.text)

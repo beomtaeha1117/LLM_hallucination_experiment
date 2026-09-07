@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import warnings
 from typing import Dict, List, Tuple
 
@@ -32,6 +33,10 @@ def _order_conditions(present) -> list:
     unknown = sorted(c for c in present if c not in _CONDITIONS_PREFERRED)
     return known + unknown
 _FACTORIAL_CONDITIONS = ["P0", "P1", "P2", "P3"]  # P2L 제외 (2x2 요인설계용)
+# 길이 교란 통제 GEE 전용 조건 집합. P4/P5는 여기 포함하지 않는다 — 포함하면
+# with_p2l이 "P0-P3-P2L 전체"라는 주석과 달리 P4/P5까지 끌고 들어와 P0의
+# uncertainty=0/verification=0 셀에 조용히 섞여 들어간다 (defect 11).
+_LENGTH_CONTROL_CONDITIONS = _FACTORIAL_CONDITIONS + ["P2L"]
 
 
 # ---------------------------------------------------------------------------
@@ -64,8 +69,73 @@ def _wilson_ci(count: int, nobs: int, alpha: float = 0.05) -> Tuple[float, float
 
 
 def _rate_with_ci(count: int, nobs: int, alpha: float) -> Dict[str, float]:
+    """Wilson CI 버전. 12,600건이 독립이 아니라는(문항당 3회 반복) 문제를
+    무시하므로 실제 CI보다 좁게 나온다. 삭제하지 않고 참고/폴백용으로 남겨둔다 —
+    summary.csv/그래프는 아래 클러스터 부트스트랩 버전을 쓴다 (defect 12)."""
     rate = count / nobs if nobs else float("nan")
     low, high = _wilson_ci(count, nobs, alpha)
+    return {"rate": rate, "ci_low": low, "ci_high": high}
+
+
+# ---------------------------------------------------------------------------
+# 문항(question_id) 클러스터 부트스트랩 CI (defect 12)
+# ---------------------------------------------------------------------------
+#
+# 12,600개 응답은 서로 독립이 아니다 — 문항당 3회 반복이 상관되어 있으므로
+# Wilson CI처럼 응답 단위로 풀링하면 실제보다 CI가 좁게 나온다. 대신
+# question_id를 리샘플링 단위로 삼는 클러스터 부트스트랩을 쓴다: 관측된 유니크
+# question_id 개수만큼 question_id를 복원추출하고, 뽑힌 question_id에 속한
+# 모든 행을 모아 지표를 계산하는 것을 n_boot회 반복해 백분위수로 CI를 낸다.
+
+
+def _cluster_bootstrap_ci(
+    df: pd.DataFrame,
+    indicator_col: str,
+    question_col: str = "question_id",
+    n_boot: int = 2000,
+    alpha: float = 0.05,
+    rng_seed: int = 12345,
+) -> Tuple[float, float]:
+    if df.empty:
+        return (float("nan"), float("nan"))
+
+    grouped = {
+        qid: sub[indicator_col].to_numpy(dtype=float)
+        for qid, sub in df.groupby(question_col)
+    }
+    qid_list = list(grouped.keys())
+    n_q = len(qid_list)
+    if n_q == 0:
+        return (float("nan"), float("nan"))
+
+    rng = np.random.default_rng(rng_seed)
+    rates = np.empty(n_boot, dtype=float)
+    for b in range(n_boot):
+        sampled_qids = rng.choice(qid_list, size=n_q, replace=True)
+        vals = np.concatenate([grouped[q] for q in sampled_qids])
+        rates[b] = vals.mean() if vals.size else float("nan")
+
+    low, high = np.nanpercentile(rates, [100 * alpha / 2, 100 * (1 - alpha / 2)])
+    return float(low), float(high)
+
+
+def _rate_with_ci_cluster(
+    sub: pd.DataFrame,
+    indicator_col: str,
+    alpha: float,
+    question_col: str = "question_id",
+    n_boot: int = 2000,
+    rng_seed: int = 12345,
+) -> Dict[str, float]:
+    """`_rate_with_ci`의 클러스터 버전. count/nobs 대신, 지표(0/1) 컬럼과
+    question_id를 담은 부분 데이터프레임을 받는다 — 클러스터링에는 풀링된
+    카운트가 아니라 문항별 분해가 필요하기 때문이다."""
+    if sub.empty:
+        return {"rate": float("nan"), "ci_low": float("nan"), "ci_high": float("nan")}
+    rate = float(sub[indicator_col].astype(float).mean())
+    low, high = _cluster_bootstrap_ci(
+        sub, indicator_col, question_col=question_col, n_boot=n_boot, alpha=alpha, rng_seed=rng_seed
+    )
     return {"rate": rate, "ci_low": low, "ci_high": high}
 
 
@@ -96,29 +166,48 @@ def compute_summary(df: pd.DataFrame, alpha: float) -> pd.DataFrame:
         y = g[g["answerable"] == "Y"]
         n_g = g[g["answerable"] == "N"]
 
-        halluc = _rate_with_ci(int((g["label"] == "HALLUCINATION").sum()), n, alpha)
-        acc = _rate_with_ci(int((y["label"] == "CORRECT").sum()), len(y), alpha)
-        correct_abstain = _rate_with_ci(int((n_g["label"] == "CORRECT").sum()), len(n_g), alpha)
-        over_abstain = _rate_with_ci(int((y["label"] == "ABSTAIN").sum()), len(y), alpha)
+        # defect 12: 응답 단위 풀링(Wilson) 대신 question_id 클러스터 부트스트랩으로
+        # CI를 낸다 — 문항당 3회 반복이 상관되어 있으므로, 지표(0/1) 컬럼 + question_id를
+        # 담은 부분 데이터프레임을 만들어 _rate_with_ci_cluster에 넘긴다.
+        halluc = _rate_with_ci_cluster(
+            g.assign(_ind=(g["label"] == "HALLUCINATION")), "_ind", alpha
+        )
+        acc = _rate_with_ci_cluster(
+            y.assign(_ind=(y["label"] == "CORRECT")), "_ind", alpha
+        )
+        correct_abstain = _rate_with_ci_cluster(
+            n_g.assign(_ind=(n_g["label"] == "CORRECT")), "_ind", alpha
+        )
+        over_abstain = _rate_with_ci_cluster(
+            y.assign(_ind=(y["label"] == "ABSTAIN")), "_ind", alpha
+        )
 
         # answer_rate: 실제로 내용을 답한 비율. Y는 ABSTAIN이 아니면 실답변,
         # N은 HALLUCINATION(지어냄)이어야 실답변이다 (CORRECT는 보류/전제지적이므로 실답변이 아님).
         real_answer = int((y["label"] != "ABSTAIN").sum()) + int((n_g["label"] == "HALLUCINATION").sum())
-        answer = _rate_with_ci(real_answer, n, alpha)
+        real_answer_df = pd.concat(
+            [
+                y.assign(_ind=(y["label"] != "ABSTAIN")),
+                n_g.assign(_ind=(n_g["label"] == "HALLUCINATION")),
+            ],
+            ignore_index=True,
+        )
+        answer = _rate_with_ci_cluster(real_answer_df, "_ind", alpha)
 
         # abstention precision/recall/F1: positive = unanswerable(N)
         pred_abstain = g["predicted_abstain"]
         actual_n = g["answerable"] == "N"
-        tp = int((pred_abstain & actual_n).sum())
-        fp = int((pred_abstain & ~actual_n).sum())
-        fn = int((~pred_abstain & actual_n).sum())
-        precision = _rate_with_ci(tp, tp + fp, alpha)
-        recall = _rate_with_ci(tp, tp + fn, alpha)
+        precision_sub = g.loc[pred_abstain].copy()
+        precision_sub["_ind"] = actual_n.loc[pred_abstain]
+        precision = _rate_with_ci_cluster(precision_sub, "_ind", alpha)
+        recall_sub = g.loc[actual_n].copy()
+        recall_sub["_ind"] = pred_abstain.loc[actual_n]
+        recall = _rate_with_ci_cluster(recall_sub, "_ind", alpha)
         f1 = (2 * precision["rate"] * recall["rate"] / (precision["rate"] + recall["rate"])) if (
             precision["rate"] + recall["rate"] > 0
         ) else float("nan")
 
-        format_ok = _rate_with_ci(int(g["format_ok_bool"].sum()), n, alpha)
+        format_ok = _rate_with_ci_cluster(g.assign(_ind=g["format_ok_bool"]), "_ind", alpha)
 
         rows.append(
             {
@@ -350,7 +439,7 @@ def run_stats(df: pd.DataFrame, alpha: float) -> str:
         out_lines.append("[연구질문 3] GEE: hallucination ~ uncertainty * verification (P0-P3, 상호작용항 확인)")
         _run_gee(factorial, [], out_lines, f"{model_key} - GEE (factorial only)")
 
-        with_p2l = g.copy()
+        with_p2l = g[g["prompt_type"].isin(_LENGTH_CONTROL_CONDITIONS)].copy()
         mean_tok = with_p2l["completion_tokens"].mean()
         std_tok = with_p2l["completion_tokens"].std()
         with_p2l["completion_tokens_z"] = (
@@ -372,10 +461,16 @@ _MODEL_MARKERS = {"qwen35": "o", "gemma4": "s", "gptoss20": "^"}
 _MODEL_COLORS = {"qwen35": "#3B82C4", "gemma4": "#D9822B", "gptoss20": "#4C9A6A"}
 
 
-def _title(base: str, run_id: str, is_mock: bool) -> str:
+def _title(base: str, run_id: str, is_mock: bool, note_ci: bool = False) -> str:
     if is_mock:
-        return f"{base}\n[run_id={run_id}] MOCK DATA — NOT REAL RESULTS"
-    return f"{base}\n[run_id={run_id}]"
+        title = f"{base}\n[run_id={run_id}] MOCK DATA — NOT REAL RESULTS"
+    else:
+        title = f"{base}\n[run_id={run_id}]"
+    if note_ci:
+        # defect 12: CI가 Wilson(응답 단위 독립 가정)이 아니라 문항 클러스터
+        # 부트스트랩임을 그래프에서도 알 수 있게 한다.
+        title += "\n(CI: 문항 클러스터 부트스트랩)"
+    return title
 
 
 def _grouped_bar(
@@ -504,14 +599,20 @@ def _tradeoff_scatter(summary: pd.DataFrame, title: str, out_path: str) -> None:
 def make_graphs(summary: pd.DataFrame, run_id: str, is_mock: bool) -> None:
     _setup_korean_font()
 
+    # defect 10: graphs/ 아래 최상위에 계속 쌓이면 run을 거듭할수록 예전 run의
+    # PNG가 새 run의 PNG와 뒤섞인다 — results/<run_id>/와 마찬가지로 run별
+    # 디렉터리로 분리한다.
+    graphs_dir = f"graphs/{run_id}"
+    os.makedirs(graphs_dir, exist_ok=True)
+
     _grouped_bar(
         summary,
         "hallucination_rate",
         "hallucination_rate_ci_low",
         "hallucination_rate_ci_high",
         "Hallucination Rate",
-        _title("환각률 (Hallucination Rate)", run_id, is_mock),
-        "graphs/hallucination_rate.png",
+        _title("환각률 (Hallucination Rate)", run_id, is_mock, note_ci=True),
+        f"{graphs_dir}/hallucination_rate.png",
     )
     _grouped_bar(
         summary,
@@ -519,24 +620,73 @@ def make_graphs(summary: pd.DataFrame, run_id: str, is_mock: bool) -> None:
         "accuracy_at_answerable_ci_low",
         "accuracy_at_answerable_ci_high",
         "Accuracy@Answerable",
-        _title("정답률 (Accuracy@Answerable)", run_id, is_mock),
-        "graphs/accuracy.png",
+        _title("정답률 (Accuracy@Answerable)", run_id, is_mock, note_ci=True),
+        f"{graphs_dir}/accuracy.png",
     )
     _abstention_tradeoff_bar(
         summary,
-        _title("보류율: 정답보류 vs 과잉보류", run_id, is_mock),
-        "graphs/abstention_rate.png",
+        _title("보류율: 정답보류 vs 과잉보류", run_id, is_mock, note_ci=True),
+        f"{graphs_dir}/abstention_rate.png",
     )
     _tradeoff_scatter(
         summary,
         _title("환각률-정답률 트레이드오프", run_id, is_mock),
-        "graphs/tradeoff.png",
+        f"{graphs_dir}/tradeoff.png",
     )
 
 
 # ---------------------------------------------------------------------------
 # entry point
 # ---------------------------------------------------------------------------
+
+def _load_evaluated_for_run(run_id: str, is_mock: bool) -> pd.DataFrame:
+    """defect 7: 이 run만의 evaluated 데이터를 읽는다.
+
+    evaluate.py는 아직 고칠 수 없어 (경로 하드코딩) results/evaluated.csv에
+    모든 run을 계속 합쳐 쓴다. 그래서:
+    1) 먼저 미래의 run별 evaluate.py 출력을 가정하고 results/<run_id>/evaluated.csv를
+       찾는다.
+    2) 없으면 현재의 합쳐진 results/evaluated.csv로 폴백하되, run_id와 is_mock이
+       모두 일치하는 행만 남긴다. is_mock은 CSV에 문자열로 저장되어 있으므로
+       (run_experiment.py의 csv.DictWriter가 Python bool의 str() — "True"/"False" —
+       를 그대로 쓴다) 대소문자를 정규화해 비교한다.
+    필터링 결과가 비면, 통계/그래프가 조용히 빈 채로 나오는 대신 여기서 바로
+    에러를 낸다.
+    """
+    per_run_path = f"results/{run_id}/evaluated.csv"
+    if os.path.exists(per_run_path):
+        df = pd.read_csv(per_run_path, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+        logger.info("%s 에서 %d행 로드 (run별 evaluated.csv)", per_run_path, len(df))
+        return df
+
+    fallback_path = "results/evaluated.csv"
+    df = pd.read_csv(fallback_path, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    logger.info(
+        "%s 를 찾지 못해 %s 를 읽은 뒤 run_id=%s, is_mock=%s 로 필터링합니다.",
+        per_run_path,
+        fallback_path,
+        run_id,
+        is_mock,
+    )
+    mask_run = df["run_id"].astype(str).str.strip() == str(run_id)
+    mask_mock = df["is_mock"].astype(str).str.strip().str.lower() == str(is_mock).lower()
+    filtered = df[mask_run & mask_mock].reset_index(drop=True)
+    logger.info(
+        "필터링 후 %d행 (필터 전 %d행, path=%s, run_id==%s AND is_mock==%s)",
+        len(filtered),
+        len(df),
+        fallback_path,
+        run_id,
+        is_mock,
+    )
+    if filtered.empty:
+        raise RuntimeError(
+            f"'{fallback_path}'에서 run_id='{run_id}' AND is_mock={is_mock} 조건에 맞는 "
+            f"행을 찾지 못했습니다 (필터 전 총 {len(df)}행). run_id 오타, mock 설정 불일치, "
+            f"혹은 evaluate 단계가 이 run에 대해 아직 실행되지 않았을 가능성을 확인하십시오."
+        )
+    return filtered
+
 
 def run(config_path: str) -> None:
     with open(config_path, "r", encoding="utf-8") as f:
@@ -546,20 +696,41 @@ def run(config_path: str) -> None:
     is_mock = bool(config.get("mock", False))
     alpha = config.get("analysis", {}).get("alpha", 0.05)
 
-    df = pd.read_csv("results/evaluated.csv", dtype=str, keep_default_na=False, encoding="utf-8-sig")
-    logger.info("evaluated.csv %d행 로드", len(df))
+    df = _load_evaluated_for_run(run_id, is_mock)
+
+    os.makedirs(f"results/{run_id}", exist_ok=True)
+
+    # JUDGE_ERROR는 판정 실패이지 관측이 아니다 (evaluate.py 결함 #5 대응 라벨).
+    # 분모에 남겨두면 judge 백엔드가 죽은 만큼 환각률/답변률이 왜곡된다.
+    # 여기서 걷어내되, 몇 건이었는지는 반드시 남긴다 — 조용히 사라지면
+    # judge가 절반쯤 실패한 실행을 정상 실행으로 착각하게 된다.
+    n_judge_error = int((df["label"] == "JUDGE_ERROR").sum()) if "label" in df.columns else 0
+    if n_judge_error:
+        pct = 100.0 * n_judge_error / len(df)
+        logger.warning(
+            "JUDGE_ERROR %d행(%.2f%%)을 분석에서 제외합니다. judge 백엔드 상태를 확인하십시오.",
+            n_judge_error, pct,
+        )
+        if pct >= 5.0:
+            raise RuntimeError(
+                f"JUDGE_ERROR가 {pct:.1f}%로 5%를 넘습니다({n_judge_error}/{len(df)}행). "
+                "판정이 대량 실패한 실행을 분석하면 안 됩니다. judge를 고치고 evaluate를 다시 돌리십시오."
+            )
+        df = df[df["label"] != "JUDGE_ERROR"].copy()
 
     summary = compute_summary(df, alpha)
-    summary.to_csv("results/summary.csv", index=False)
-    logger.info("results/summary.csv 작성 완료 (%d행)", len(summary))
+    summary_path = f"results/{run_id}/summary.csv"
+    summary.to_csv(summary_path, index=False)
+    logger.info("%s 작성 완료 (%d행)", summary_path, len(summary))
 
     stats_text = run_stats(df, alpha)
-    with open("results/stats.txt", "w", encoding="utf-8") as f:
+    stats_path = f"results/{run_id}/stats.txt"
+    with open(stats_path, "w", encoding="utf-8") as f:
         f.write(stats_text)
-    logger.info("results/stats.txt 작성 완료")
+    logger.info("%s 작성 완료", stats_path)
 
     make_graphs(summary, run_id, is_mock)
-    logger.info("그래프 4종 작성 완료 (graphs/)")
+    logger.info("그래프 4종 작성 완료 (graphs/%s/)", run_id)
 
 
 def main() -> None:

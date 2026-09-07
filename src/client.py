@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import random
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger("client")
 
 
 @dataclass
@@ -38,6 +41,7 @@ class LMStudioClient:
 
         self._client = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout_s)
         self.max_retries = max_retries
+        self._thinking_warning_logged = False
 
     def complete(
         self,
@@ -53,14 +57,30 @@ class LMStudioClient:
         temperature: float = 0.7,
         top_p: float = 0.9,
         max_tokens: int = 512,
+        thinking: Optional[bool] = None,
     ) -> Completion:
-        """실제 LM Studio 서버에 요청을 보낸다. 지수 백오프로 재시도한다."""
+        """실제 LM Studio 서버에 요청을 보낸다. 지수 백오프로 재시도한다.
+
+        `thinking`: config의 generation.thinking 값을 그대로 전달받는다 (기본값은
+        여기서 하드코딩하지 않고 호출부의 config가 정한다 — None이면 아무 것도
+        보내지 않는다).
+        """
+        if thinking is not None and not self._thinking_warning_logged:
+            logger.warning(
+                "generation.thinking=%s 를 extra_body로 요청에 실어 보냅니다. "
+                "LM Studio/OpenAI 호환 서버에서 'thinking'을 끄는 실제 파라미터 이름/형식은 "
+                "백엔드마다 다르며 이 코드는 이를 검증하지 않았습니다 — 서버가 실제로 "
+                "reasoning을 비활성화하는지는 보장되지 않습니다.",
+                thinking,
+            )
+            self._thinking_warning_logged = True
+
         backoff = 1.0
         last_exc: Exception | None = None
         for attempt in range(self.max_retries):
             try:
                 t0 = time.monotonic()
-                resp = self._client.chat.completions.create(
+                request_kwargs: Dict[str, Any] = dict(
                     model=lms_id,
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -71,6 +91,17 @@ class LMStudioClient:
                     max_tokens=max_tokens,
                     seed=seed,
                 )
+                if thinking is not None:
+                    # 주의(한국어, 필수 확인 사항): 아래 "thinking" 키는 LM Studio의
+                    # OpenAI 호환 서버가 실제로 받아들이는 파라미터 이름인지 검증되지
+                    # 않았다 (reasoning_effort, enable_thinking, chat-template
+                    # extra_body 키 등 백엔드마다 이름이 다르다). openai SDK가 임의
+                    # 값을 그대로 실어 보내도록 보장하는 `extra_body`를 사용해 값만
+                    # 전달한다 — config 값이 요청에 실린다는 것만 보장할 뿐, 서버가
+                    # 이를 해석해 실제로 reasoning을 끄는지는 이 코드가 보증하지
+                    # 않는다. 실제 LM Studio 서버로 반드시 확인할 것.
+                    request_kwargs["extra_body"] = {"thinking": thinking}
+                resp = self._client.chat.completions.create(**request_kwargs)
                 latency_ms = (time.monotonic() - t0) * 1000.0
                 choice = resp.choices[0]
                 text = choice.message.content or ""
@@ -154,7 +185,10 @@ class MockClient:
         temperature: float = 0.7,
         top_p: float = 0.9,
         max_tokens: int = 512,
+        thinking: Optional[bool] = None,
     ) -> Completion:
+        # thinking은 MockClient에서는 아무 효과가 없다 — 실제 클라이언트와
+        # 호출 시그니처를 맞추기 위해서만 받는다.
         rng = _stable_rng(model_key, prompt_type, str(question["question_id"]), repeat)
 
         uncertainty = prompt_type in {"P1", "P3"}

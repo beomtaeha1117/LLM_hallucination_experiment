@@ -78,6 +78,7 @@ EVAL_COLUMNS = RAW_COLUMNS + [
     "label",
     "decided_by",
     "judge_votes",
+    "abstain_with_claim",
     "human_label",
     "human_rater_id",
 ]

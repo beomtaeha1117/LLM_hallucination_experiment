@@ -8,7 +8,13 @@ seeds: [1, 2, 3]
 conditions: [P0, P1, P2, P3, P2L, P4, P5]
 models:
   - {key: qwen35,   lms_id: "qwen3.6-35b-a3b",  quant: Q4_K_M, engine: llama.cpp}
-  - {key: gemma4,   lms_id: "gemma-4-12b",      quant: Q4_K_M, engine: llama.cpp}
+  - {key: gemma4,   lms_id: "gemma-4-12b",      quant: Q4_0_QAT, engine: llama.cpp}  # 공식 GGUF는 QAT Q4_0(~6.98GB). 실제 받은 파일과 일치시킬 것
   - {key: gptoss20, lms_id: "gpt-oss-20b",      quant: MXFP4,  engine: llama.cpp}
-judge: {key: judge_model, lms_id: "judge-placeholder", temperature: 0.0, votes: 3}
+# judge.votes = 1: temperature 0.0에서 같은 요청을 3번 반복하는 것은 독립 평가자
+# 3명이 아니라 거의 같은 답 3개다. 그걸 "3회 다수결"이라 부르면 있지도 않은
+# 신뢰도를 주장하게 된다. 판정 신뢰도는 인간 400건 재판정 κ로 잡는다.
+# (투표 기계는 남겨뒀다 — temperature>0으로 부분표본 자기일관성을 볼 때 쓴다.)
+judge: {key: judge_model, lms_id: "judge-placeholder", temperature: 0.0, votes: 1}
+# numeric_tolerance_pct는 **상대 백분율**이지 백분율 포인트가 아니다.
+# 예: 78%에 1.5를 주면 ±1.17%p다. 문항별 tolerance_pct 컬럼도 같은 의미다.
 analysis: {alpha: 0.05, numeric_tolerance_pct: 1.0}
