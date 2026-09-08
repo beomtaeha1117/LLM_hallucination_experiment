@@ -195,7 +195,7 @@ LM Studio 왼쪽의 **돋보기(검색)** 아이콘을 누르고, 아래 이름�
 
 | 순서 | 검색어 | 고를 파일 | 크기 |
 |---|---|---|---|
-| 1 (필수) | `lmstudio-community/Qwen3.6-35B-A3B-GGUF` | **Q4_K_M** | 21.2GB |
+| 1 (필수) | `unsloth/Qwen3.6-35B-A3B-GGUF` | **Q4_K_S** | 20.9GB |
 | 2 (필수) | `google/gemma-4-12b-it-qat-q4_0-gguf` | **QAT Q4_0** | 약 7GB |
 | 3 (선택) | `openai/gpt-oss-20b` | MXFP4 | 약 16GB |
 | 4 (judge) | 위 셋과 **다른 계열** 아무거나 1종 | — | — |

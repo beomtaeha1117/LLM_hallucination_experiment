@@ -7,7 +7,7 @@ repeats: 3
 seeds: [1, 2, 3]
 conditions: [P0, P1, P2, P3, P2L, P4, P5]
 models:
-  - {key: qwen35,   lms_id: "qwen3.6-35b-a3b",  quant: Q4_K_M, engine: llama.cpp}
+  - {key: qwen35, lms_id: "qwen3.6-35b-a3b", quant: Q4_K_S, engine: llama.cpp}  # unsloth/Qwen3.6-35B-A3B-GGUF Q4_K_S (20.9GB, Apache 2.0). 양자화는 조건 간이 아니라 조건 내 통제변인이라 Q4_K_M에서 바꿔도 비교는 성립한다. 다만 파일럿과 본실험이 같은 파일이어야 한다.
   - {key: gemma4,   lms_id: "gemma-4-12b",      quant: Q4_0_QAT, engine: llama.cpp}  # 공식 GGUF는 QAT Q4_0(~6.98GB). 실제 받은 파일과 일치시킬 것
   - {key: gptoss20, lms_id: "gpt-oss-20b",      quant: MXFP4,  engine: llama.cpp}
 # judge.votes = 1: temperature 0.0에서 같은 요청을 3번 반복하는 것은 독립 평가자

@@ -16,6 +16,6 @@ seeds: [1]
 conditions: [P0, P1, P2, P3, P2L, P4, P5]
 models:
   # lms_id는 LM Studio에 실제로 뜨는 id로 반드시 교체할 것.
-  - {key: qwen35, lms_id: "qwen3.6-35b-a3b", quant: Q4_K_M, engine: llama.cpp}
+  - {key: qwen35, lms_id: "qwen3.6-35b-a3b", quant: Q4_K_S, engine: llama.cpp}  # unsloth/Qwen3.6-35B-A3B-GGUF Q4_K_S (20.9GB, Apache 2.0). 양자화는 조건 간이 아니라 조건 내 통제변인이라 Q4_K_M에서 바꿔도 비교는 성립한다. 다만 파일럿과 본실험이 같은 파일이어야 한다.
 judge: {key: judge_model, lms_id: "judge-placeholder", temperature: 0.0, votes: 1}
 analysis: {alpha: 0.05, numeric_tolerance_pct: 1.0}

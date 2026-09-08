@@ -38,10 +38,13 @@ LM Studio 검색창에 아래 저장소 이름을 그대로 넣는다.
 
 | 용도 | 저장소 | 양자화 | 크기 | 라이선스 |
 |---|---|---|---|---|
-| 주모델 | `lmstudio-community/Qwen3.6-35B-A3B-GGUF` | Q4_K_M | 21.2GB | Apache 2.0 |
+| 주모델 | `unsloth/Qwen3.6-35B-A3B-GGUF` | **Q4_K_S** | 20.9GB | Apache 2.0 |
 | 재현모델 | `google/gemma-4-12b-it-qat-q4_0-gguf` | **QAT Q4_0** | ~6.98GB | ⚠️ 아래 주의 |
 | 플랫폼 | `openai/gpt-oss-20b` | MXFP4 | ~16GB 메모리 | Apache 2.0 |
 
+- 주모델은 `lmstudio-community` Q4_K_M(22.1GB) 대신 **`unsloth` Q4_K_S(20.9GB)**를 쓴다.
+  양자화는 조건 **간**이 아니라 조건 **내** 통제변인이므로 프롬프트 7종이 같은 파일을 쓰기만 하면 비교는 성립한다.
+  🚨 **파일럿과 본실험이 반드시 같은 파일이어야 한다.** 중간에 바꾸면 앞뒤 데이터를 합칠 수 없다.
 - ⚠️ **Gemma 양자화는 Q4_K_M이 아니라 QAT Q4_0이다.** config에 `Q4_0_QAT`로 적어뒀다.
   다른 파일을 받았으면 **받은 파일 이름에 맞춰 config를 고칠 것.**
 - ⚠️ **Gemma 라이선스는 확정하지 못했다.** HF 페이지가 Apache 2.0으로 읽혔으나 Gemma 계열은
