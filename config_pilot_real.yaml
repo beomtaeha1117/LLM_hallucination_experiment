@@ -1,0 +1,21 @@
+# 파일럿 — 실제 모델. 주모델 1종 x 7조건 x 27문항 x 1반복 = 189응답.
+#
+# 목적은 결과를 보는 것이 아니라 아래 넷을 정하는 것이다 (docs/RUNBOOK.md §3):
+#   1) 보류 표현 사전 구축·동결  2) judge 선정(κ)  3) 천장/바닥 효과  4) 소요 시간 재계산
+#
+# ⚠️ 파일럿 문항 27개 중 19개가 본실험 200문항과 겹친다. 완전 분리가 이상적이지만
+#    새로 20문항을 쓰는 비용이 커서 겹치는 쪽을 택했다. 대신 **사전은 파일럿에서
+#    확정한 뒤 본실험 결과를 보고 고치지 않는다.** 이 겹침은 논문 한계에 적는다.
+run_id: pilot_001
+mock: false
+questions_file: data/pilot_questions_DRAFT.csv
+server: {base_url: "http://localhost:1234/v1", api_key: "lm-studio", timeout_s: 300, max_retries: 3}
+generation: {temperature: 0.7, top_p: 0.9, max_tokens: 512, thinking: false}
+repeats: 1
+seeds: [1]
+conditions: [P0, P1, P2, P3, P2L, P4, P5]
+models:
+  # lms_id는 LM Studio에 실제로 뜨는 id로 반드시 교체할 것.
+  - {key: qwen35, lms_id: "qwen3.6-35b-a3b", quant: Q4_K_M, engine: llama.cpp}
+judge: {key: judge_model, lms_id: "judge-placeholder", temperature: 0.0, votes: 1}
+analysis: {alpha: 0.05, numeric_tolerance_pct: 1.0}

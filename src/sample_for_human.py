@@ -11,6 +11,7 @@ results/human_sample_blind.csv(블라인드, auto_label/decided_by 제거)를 �
 from __future__ import annotations
 
 import argparse
+import os
 import math
 import random
 from typing import Dict, List, Tuple
@@ -224,24 +225,40 @@ def build_sample(eval_path: str, n: int, seed: int) -> pd.DataFrame:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="config.yaml", help="config.yaml 경로 (참조용)")
-    parser.add_argument("--eval-path", default=EVAL_PATH_DEFAULT, help="results/evaluated.csv 경로")
+    parser.add_argument("--config", default="config.yaml", help="config.yaml 경로 (run_id를 여기서 읽는다)")
+    parser.add_argument("--eval-path", default=None, help="비우면 config의 run_id로 results/<run_id>/evaluated.csv를 쓴다")
     parser.add_argument("--n", type=int, default=400, help="표본 크기 (기본 400)")
-    parser.add_argument("--out", default="results/human_sample.csv", help="전체본 출력 경로")
+    parser.add_argument("--out", default=None, help="비우면 results/<run_id>/human_sample.csv")
     parser.add_argument("--seed", type=int, default=42, help="랜덤 시드")
     args = parser.parse_args()
 
     # config.yaml 은 이 실험의 유일한 통제변인 출처이므로 존재 여부만 확인하고
     # (스펙에 정의되지 않은 표본 관련 항목이 없으면) 그대로 진행한다.
+    # run_id를 config에서 읽어 표본 경로를 run별 디렉터리로 맞춘다. 이걸 안 하면
+    # 옛 고정 경로(results/evaluated.csv)의 묵은 mock 파일을 조용히 읽어서
+    # 인간 검증 표본이 통째로 가짜 데이터에서 뽑히게 된다.
+    run_id = None
     try:
         with open(args.config, "r", encoding="utf-8") as f:
-            yaml.safe_load(f)
+            cfg = yaml.safe_load(f) or {}
+        run_id = cfg.get("run_id")
     except FileNotFoundError:
         print(f"경고: config 파일 {args.config} 을 찾지 못했습니다. 계속 진행합니다.")
 
-    sample = build_sample(args.eval_path, args.n, args.seed)
+    eval_path = args.eval_path
+    if eval_path is None:
+        if not run_id:
+            raise SystemExit("config에서 run_id를 읽지 못했습니다. --eval-path로 직접 지정하십시오.")
+        eval_path = f"results/{run_id}/evaluated.csv"
+    if not os.path.exists(eval_path):
+        raise SystemExit(
+            f"{eval_path} 가 없습니다. evaluate를 먼저 돌렸는지, config의 run_id가 맞는지 확인하십시오."
+        )
+    print(f"표본 추출 대상: {eval_path}")
 
-    full_out = args.out
+    sample = build_sample(eval_path, args.n, args.seed)
+
+    full_out = args.out or (f"results/{run_id}/human_sample.csv" if run_id else "results/human_sample.csv")
     blind_out = full_out.replace(".csv", "_blind.csv")
     if blind_out == full_out:  # .csv 로 안 끝나는 경우 방어
         blind_out = full_out + "_blind.csv"
