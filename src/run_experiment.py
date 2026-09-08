@@ -187,7 +187,7 @@ def run(config_path: str) -> None:
                             temperature=gen_cfg["temperature"],
                             top_p=gen_cfg["top_p"],
                             max_tokens=gen_cfg["max_tokens"],
-                            thinking=gen_cfg.get("thinking"),
+                            reasoning_effort=gen_cfg.get("reasoning_effort"),
                         )
 
                         response_final, format_ok, parse_mode = parse_final_answer(completion.text)
@@ -213,6 +213,7 @@ def run(config_path: str) -> None:
                             "temperature": gen_cfg["temperature"],
                             "top_p": gen_cfg["top_p"],
                             "max_tokens": gen_cfg["max_tokens"],
+                            "reasoning_effort": gen_cfg.get("reasoning_effort", ""),
                             "response_raw": completion.text,
                             "response_final": response_final,
                             "prompt_tokens": completion.prompt_tokens,

@@ -41,7 +41,7 @@ class LMStudioClient:
 
         self._client = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout_s)
         self.max_retries = max_retries
-        self._thinking_warning_logged = False
+        self._reasoning_leak_logged = False
 
     def complete(
         self,
@@ -57,23 +57,17 @@ class LMStudioClient:
         temperature: float = 0.7,
         top_p: float = 0.9,
         max_tokens: int = 512,
-        thinking: Optional[bool] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> Completion:
         """실제 LM Studio 서버에 요청을 보낸다. 지수 백오프로 재시도한다.
 
-        `thinking`: config의 generation.thinking 값을 그대로 전달받는다 (기본값은
-        여기서 하드코딩하지 않고 호출부의 config가 정한다 — None이면 아무 것도
-        보내지 않는다).
+        `reasoning_effort`: config의 generation.reasoning_effort 값을 그대로 전달받는다
+        (None이면 아무 것도 보내지 않는다). 2026-09-08 프로브에서 qwen3.6-35b-a3b에
+        대해 "none"만이 응답에서 reasoning_content를 없앴다 — extra_body의 thinking /
+        enable_thinking / chat_template_kwargs 와 프롬프트 /no_think 접미사는 서버가
+        받아들이기는 하되(거부되지 않는다) 추론 흔적이 그대로 남았다. 자세한 근거는
+        docs/RUNBOOK.md의 프로브 절을 볼 것.
         """
-        if thinking is not None and not self._thinking_warning_logged:
-            logger.warning(
-                "generation.thinking=%s 를 extra_body로 요청에 실어 보냅니다. "
-                "LM Studio/OpenAI 호환 서버에서 'thinking'을 끄는 실제 파라미터 이름/형식은 "
-                "백엔드마다 다르며 이 코드는 이를 검증하지 않았습니다 — 서버가 실제로 "
-                "reasoning을 비활성화하는지는 보장되지 않습니다.",
-                thinking,
-            )
-            self._thinking_warning_logged = True
 
         backoff = 1.0
         last_exc: Exception | None = None
@@ -91,20 +85,30 @@ class LMStudioClient:
                     max_tokens=max_tokens,
                     seed=seed,
                 )
-                if thinking is not None:
-                    # 주의(한국어, 필수 확인 사항): 아래 "thinking" 키는 LM Studio의
-                    # OpenAI 호환 서버가 실제로 받아들이는 파라미터 이름인지 검증되지
-                    # 않았다 (reasoning_effort, enable_thinking, chat-template
-                    # extra_body 키 등 백엔드마다 이름이 다르다). openai SDK가 임의
-                    # 값을 그대로 실어 보내도록 보장하는 `extra_body`를 사용해 값만
-                    # 전달한다 — config 값이 요청에 실린다는 것만 보장할 뿐, 서버가
-                    # 이를 해석해 실제로 reasoning을 끄는지는 이 코드가 보증하지
-                    # 않는다. 실제 LM Studio 서버로 반드시 확인할 것.
-                    request_kwargs["extra_body"] = {"thinking": thinking}
+                if reasoning_effort is not None:
+                    # reasoning_effort는 프로브로 검증된 유일한 경로다 (2026-09-08,
+                    # qwen3.6-35b-a3b). 다만 검증은 그 한 모델에서만 했다 — gemma-4-12b,
+                    # gpt-oss-20b에서도 같은지는 아래 누출 검사가 실행 중에 확인한다.
+                    request_kwargs["reasoning_effort"] = reasoning_effort
                 resp = self._client.chat.completions.create(**request_kwargs)
                 latency_ms = (time.monotonic() - t0) * 1000.0
                 choice = resp.choices[0]
                 text = choice.message.content or ""
+                # 조건이 조용히 어긋나는 것을 막는다: reasoning을 껐다고 선언했는데
+                # 서버가 여전히 reasoning_content를 돌려주면 그 모델에서는 안 꺼진
+                # 것이고, 그대로 두면 통제변인이 모델마다 달라진 채로 실험이 끝난다.
+                if (
+                    reasoning_effort == "none"
+                    and getattr(choice.message, "reasoning_content", None)
+                    and not self._reasoning_leak_logged
+                ):
+                    logger.warning(
+                        "%s: reasoning_effort='none'을 보냈는데도 응답에 reasoning_content가 "
+                        "남아 있습니다. 이 모델에서는 추론 모드가 꺼지지 않은 것이므로 "
+                        "조건이 모델 간에 달라집니다 — 논문 한계에 반드시 적을 것.",
+                        lms_id,
+                    )
+                    self._reasoning_leak_logged = True
                 usage = resp.usage
                 prompt_tokens = getattr(usage, "prompt_tokens", 0) if usage else 0
                 completion_tokens = getattr(usage, "completion_tokens", 0) if usage else 0
@@ -185,9 +189,9 @@ class MockClient:
         temperature: float = 0.7,
         top_p: float = 0.9,
         max_tokens: int = 512,
-        thinking: Optional[bool] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> Completion:
-        # thinking은 MockClient에서는 아무 효과가 없다 — 실제 클라이언트와
+        # reasoning_effort는 MockClient에서는 아무 효과가 없다 — 실제 클라이언트와
         # 호출 시그니처를 맞추기 위해서만 받는다.
         rng = _stable_rng(model_key, prompt_type, str(question["question_id"]), repeat)
 

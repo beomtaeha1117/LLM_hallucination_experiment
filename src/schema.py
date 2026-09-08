@@ -64,6 +64,7 @@ RAW_COLUMNS = [
     "temperature",
     "top_p",
     "max_tokens",
+    "reasoning_effort",
     "response_raw",
     "response_final",
     "prompt_tokens",
