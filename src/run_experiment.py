@@ -24,6 +24,11 @@ from src.schema import RAW_COLUMNS, load_questions, parse_final_answer
 
 logger = logging.getLogger("run_experiment")
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+# openai/httpx가 호출마다 INFO로 "HTTP Request: POST ... 200 OK"를 찍는다. 응답 하나당
+# 한 줄이라 진행 막대가 매번 밀려서 실행을 지켜볼 수가 없고, 로그 파일도 그 줄로 뒤덮인다.
+# 실패는 예외로 올라오고 재시도는 client.py가 따로 경고하므로 이 줄들은 없어도 된다.
+for _noisy in ("httpx", "httpcore", "openai"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 def _load_prompt(prompt_type: str) -> str:
     """prompts/<조건이름>_*.txt 를 조건 이름으로 찾아 읽는다.
