@@ -6,11 +6,11 @@
 # ⚠️ 파일럿 문항 27개 중 19개가 본실험 200문항과 겹친다. 완전 분리가 이상적이지만
 #    새로 20문항을 쓰는 비용이 커서 겹치는 쪽을 택했다. 대신 **사전은 파일럿에서
 #    확정한 뒤 본실험 결과를 보고 고치지 않는다.** 이 겹침은 논문 한계에 적는다.
-run_id: pilot_001
+run_id: pilot_002
 mock: false
 questions_file: data/pilot_questions_DRAFT.csv
 server: {base_url: "http://localhost:1234/v1", api_key: "lm-studio", timeout_s: 300, max_retries: 3}
-generation: {temperature: 0.7, top_p: 0.9, max_tokens: 512, reasoning_effort: "none"}  # reasoning_effort="none"만 프로브에서 reasoning_content를 없앴다 (2026-09-08, qwen3.6-35b-a3b). thinking/enable_thinking/chat_template_kwargs//no_think는 서버가 받아들이되 효과 없음.
+generation: {temperature: 0.7, top_p: 0.9, max_tokens: 1024, reasoning_effort: "none"}  # reasoning_effort="none"만 프로브에서 reasoning_content를 없앴다 (2026-09-08, qwen3.6-35b-a3b). thinking/enable_thinking/chat_template_kwargs//no_think는 서버가 받아들이되 효과 없음.
 repeats: 1
 seeds: [1]
 conditions: [P0, P1, P2, P3, P2L, P4, P5]

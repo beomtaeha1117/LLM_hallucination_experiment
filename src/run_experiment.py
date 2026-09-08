@@ -203,6 +203,10 @@ def run(config_path: str) -> None:
     written = 0
     skipped = 0
     format_ok_counter: Dict[str, Counter] = {c: Counter() for c in conditions}
+    # 잘림은 format_ok 실패로 나타나지만 원인이 전혀 다르다(형식 불이행이 아니라
+    # max_tokens 부족). 파일럿에서 둘을 갈라내는 데 별도 도구가 필요했으므로
+    # 요약에 같이 띄운다.
+    truncated_counter: Dict[str, int] = {c: 0 for c in conditions}
 
     file_exists = os.path.exists(raw_path) and os.path.getsize(raw_path) > 0
     csv_file = open(raw_path, "a", newline="", encoding="utf-8")
@@ -246,6 +250,8 @@ def run(config_path: str) -> None:
 
                         response_final, format_ok, parse_mode = parse_final_answer(completion.text)
                         format_ok_counter[prompt_type]["ok" if format_ok else "bad"] += 1
+                        if completion.finish_reason == "length":
+                            truncated_counter[prompt_type] += 1
 
                         row = {
                             "run_id": run_id,
@@ -298,7 +304,17 @@ def run(config_path: str) -> None:
         if total == 0:
             continue
         rate = counter["ok"] / total
-        logger.info("  %s: format_ok_rate=%.3f (n=%d)", prompt_type, rate, total)
+        n_trunc = truncated_counter.get(prompt_type, 0)
+        logger.info(
+            "  %s: format_ok_rate=%.3f (n=%d), 잘림(max_tokens 도달)=%d",
+            prompt_type, rate, total, n_trunc,
+        )
+        if n_trunc and n_trunc >= (total - counter["ok"]) * 0.5:
+            logger.warning(
+                "  ↑ %s의 형식 실패는 대부분 잘림이다 — 형식 불이행이 아니라 "
+                "max_tokens가 모자란 것이므로 프롬프트를 고치지 말 것.",
+                prompt_type,
+            )
 
 
 def main() -> None:
