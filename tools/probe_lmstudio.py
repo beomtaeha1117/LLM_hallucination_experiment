@@ -175,7 +175,7 @@ def main() -> None:
         sys.exit(f"서버에 붙지 못했습니다: {type(exc).__name__}: {exc}\n"
                  "LM Studio에서 Local Server를 켰는지 확인하십시오.")
 
-    print("로드된 모델:")
+    print("이 서버에서 쓸 수 있는 모델 (JIT 로딩이 켜져 있으면 로드 안 된 것도 나온다):")
     for i in ids:
         print(f"  - {i}")
     if not args.model:

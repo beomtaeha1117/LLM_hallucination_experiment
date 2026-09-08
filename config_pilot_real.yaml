@@ -16,6 +16,11 @@ seeds: [1]
 conditions: [P0, P1, P2, P3, P2L, P4, P5]
 models:
   # lms_id는 LM Studio에 실제로 뜨는 id로 반드시 교체할 것.
-  - {key: qwen35, lms_id: "qwen3.6-35b-a3b", quant: Q4_K_S, engine: llama.cpp}  # unsloth/Qwen3.6-35B-A3B-GGUF Q4_K_S (20.9GB, Apache 2.0). 양자화는 조건 간이 아니라 조건 내 통제변인이라 Q4_K_M에서 바꿔도 비교는 성립한다. 다만 파일럿과 본실험이 같은 파일이어야 한다.
-judge: {key: judge_model, lms_id: "judge-placeholder", temperature: 0.0, votes: 1}
+  - {key: qwen35, lms_id: "qwen3.6-35b-a3b", quant: Q4_K_S, engine: llama.cpp}  # unsloth/Qwen3.6-35B-A3B-GGUF Q4_K_S (LM Studio 표기 22.7GB). 양자화는 조건 간이 아니라 조건 내 통제변인이라 Q4_K_M에서 바꿔도 비교는 성립한다. 파일럿과 본실험은 반드시 같은 파일.
+# 🚨 judge는 아직 확정이 아니다. 파일럿에서 사람이 라벨링한 80~100건과 대조해 κ로 고른다.
+# 현재 받아둔 것 중 피험 3종(Qwen/Gemma/gpt-oss)과 계열이 다른 후보:
+#   - devstral-small-2-24b-instruct-2512      Mistral 계열, instruct. 단 **코딩 특화**라 한국어 QA 채점 적합성 미확인
+#   - glm-4.7-flash-uncensored-...            GLM 계열이나 **uncensored 변형**이라 판정자로 부적절
+# 둘 다 미덥지 않으면 깨끗한 instruct 모델을 하나 더 받아 후보에 넣을 것.
+judge: {key: judge_model, lms_id: "devstral-small-2-24b-instruct-2512", temperature: 0.0, votes: 1}
 analysis: {alpha: 0.05, numeric_tolerance_pct: 1.0}
