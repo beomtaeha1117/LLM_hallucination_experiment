@@ -181,6 +181,16 @@ def load_questions(path: str) -> pd.DataFrame:
     return df
 
 
+
+def _is_marker_typo(header: str) -> bool:
+    """대괄호 헤더가 [최종답변]에서 한두 글자만 어긋났는지 본다."""
+    target = "최종답변"
+    inner = header.strip("[]").replace(" ", "")
+    if inner == target or len(inner) != len(target):
+        return False
+    return sum(a != b for a, b in zip(inner, target)) <= 2
+
+
 def parse_final_answer(text: str) -> Tuple[str, bool, str]:
     """응답 텍스트에서 채점 대상이 될 최종 텍스트를 추출한다.
 
@@ -210,6 +220,12 @@ def parse_final_answer(text: str) -> Tuple[str, bool, str]:
     if last_header is not None:
         after = text[last_header.end():]
         after = _TRAILING_SECTION_RE.sub("", after)
-        return after.strip(), False, "last_section"
+        # 마지막 헤더가 [최종답변]에서 한두 글자 어긋난 것이면, 모델이 형식을
+        # 지키려다 오타를 낸 것이다(pilot_002에서 "[최정답변]" 5건). 추출은 이미
+        # 올바르므로 동작은 그대로 두되, [초안]/[검토] 같은 다른 구조에서 걸린
+        # 것과는 이름을 나눠 기록한다 — 논문 방법 절에서 둘을 구분해야 한다.
+        # format_ok는 여전히 False다: 형식을 어긴 것은 사실이다.
+        mode = "near_marker" if _is_marker_typo(last_header.group(0)) else "last_section"
+        return after.strip(), False, mode
 
     return text.strip(), False, "raw"
