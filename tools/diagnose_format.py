@@ -28,6 +28,22 @@ NEAR_MISS = {
 }
 
 
+# 실패 응답에 실제로 등장한 대괄호 토큰을 센다. 미리 떠올린 후보 목록만으로는
+# 놓친다는 것을 pilot_002에서 확인했다.
+BRACKET_RE = re.compile(r"\[([^\[\]\n]{1,20})\]")
+
+
+def _looks_like_marker(tok: str) -> bool:
+    """[최종답변]에서 한두 글자 어긋난 것을 마커 오타로 본다."""
+    target = "최종답변"
+    t = tok.replace(" ", "")
+    if t == target:
+        return False  # 정확히 맞으면 파서가 이미 잡았을 것이다
+    if len(t) != len(target):
+        return False
+    return sum(a != b for a, b in zip(t, target)) <= 2
+
+
 def main(path: str) -> None:
     df = pd.read_csv(path, dtype=str, encoding="utf-8-sig")
     df["format_ok"] = df["format_ok"].astype(str).str.lower().isin(["true", "1"])
@@ -51,8 +67,21 @@ def main(path: str) -> None:
             print("  마커 유사 표기 (파서가 못 잡는 것):")
             for name, n in hits.most_common():
                 print(f"    {n:3d}건  {name}")
+
+        # 위 목록은 내가 미리 떠올린 형태만 잡는다. pilot_002에서 모델이 쓴 것은
+        # "[최정답변]"이었고(최종 -> 최정 오타) 목록에 없어서 "유사 표기 없음"으로
+        # 잘못 보고됐다. 그래서 떠올리는 대신 실제로 나온 대괄호 토큰을 전부 센다.
+        seen = Counter()
+        for t in bad["response_raw"].fillna(""):
+            for tok in BRACKET_RE.findall(t):
+                seen[tok.strip()] += 1
+        if seen:
+            print("  실패 응답에 실제로 나온 대괄호 토큰:")
+            for tok, n in seen.most_common(8):
+                flag = "  <- 마커 오타로 보인다" if _looks_like_marker(tok) else ""
+                print(f"    {n:3d}건  [{tok}]{flag}")
         else:
-            print("  마커 유사 표기: 없음 — 아예 안 쓴 것으로 보인다")
+            print("  대괄호 토큰이 하나도 없다 — 형식을 아예 안 쓴 것이다")
 
         # 2) parse_mode 분포와 잘림 여부
         print("  parse_mode:", dict(Counter(bad["parse_mode"].fillna(""))))
