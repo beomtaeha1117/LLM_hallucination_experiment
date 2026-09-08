@@ -68,6 +68,27 @@ def main(path: str) -> None:
             print(f"    ...{tail}")
         print()
 
+    # 조건이 다른데 실패율이 똑같이 나오면, 원인이 조건이 아니라 문항일 수 있다.
+    # 실제로 pilot_002에서 P0/P1/P4/P5가 전부 0.741(=20/27)로 같았다.
+    fails = {c: set(g[~g["format_ok"]]["question_id"]) for c, g in df.groupby("prompt_type")}
+    conds = [c for c in fails if fails[c]]
+    if len(conds) >= 2:
+        common = set.intersection(*(fails[c] for c in conds))
+        union = set.union(*(fails[c] for c in conds))
+        print("=" * 60)
+        print("조건 간 실패 문항 겹침")
+        print(f"  실패가 있는 조건 {len(conds)}개, 실패 문항 합집합 {len(union)}개")
+        print(f"  모든 조건에서 실패한 문항: {len(common)}개")
+        if common:
+            print("  -> 조건과 무관하게 실패하는 문항이다. 원인은 프롬프트가 아니라 문항 쪽이다:")
+            sub = df[df["question_id"].isin(common)].drop_duplicates("question_id")
+            for _, r in sub.iterrows():
+                q = str(r.get("question", ""))[:50].replace("\n", " ")
+                print(f"     {r['question_id']:8} [{r.get('question_type','')}] {q}")
+        else:
+            print("  -> 겹치는 문항이 없다. 조건별로 다른 문항이 실패하고 있다.")
+        print()
+
     # 전체 요약: 잘려서 실패한 것과 형식을 안 지켜서 실패한 것은 원인이 다르다
     bad_all = df[~df["format_ok"]]
     ct = pd.to_numeric(bad_all["completion_tokens"], errors="coerce")

@@ -330,7 +330,10 @@ def run(config_path: str) -> None:
             "  %s: format_ok_rate=%.3f (n=%d), 잘림(max_tokens 도달)=%d",
             prompt_type, rate, total, n_trunc,
         )
-        if n_trunc and n_trunc >= (total - counter["ok"]) * 0.5:
+        n_bad = counter["bad"]
+        # n_bad를 먼저 본다: 형식 실패가 없는데 경고를 띄우면 안 된다. 잘렸어도
+        # 마커까지는 쓴 응답이 있어서 잘림 수가 실패 수보다 많을 수 있다(P3에서 그랬다).
+        if n_bad and n_trunc >= n_bad * 0.5:
             logger.warning(
                 "  ↑ %s의 형식 실패는 대부분 잘림이다 — 형식 불이행이 아니라 "
                 "max_tokens가 모자란 것이므로 프롬프트를 고치지 말 것.",
