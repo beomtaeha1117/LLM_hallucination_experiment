@@ -5,13 +5,15 @@ from __future__ import annotations
 import argparse
 import csv
 import glob
+import io
 import json
 import logging
 import os
+import shutil
 import time
 from collections import Counter
 from datetime import datetime, timezone
-from typing import Dict, Set, Tuple
+from typing import Dict, Optional, Set, Tuple
 
 import pandas as pd
 import yaml
@@ -66,7 +68,28 @@ def _load_done_keys(raw_path: str) -> Set[Tuple]:
         existing = pd.read_csv(raw_path, dtype=str, encoding="utf-8-sig")
     except pd.errors.EmptyDataError:
         return set()
+    except pd.errors.ParserError:
+        # 전원이 행을 쓰는 도중에 끊기면 마지막 줄이 잘린 채 남는다. 응답 텍스트에
+        # 줄바꿈과 쉼표가 있어 따옴표 안에서 잘리면 파일 전체 파싱이 실패하고,
+        # 그러면 resume이 아니라 재시작 자체가 막힌다. 잘린 꼬리만 잘라내고 잇는다.
+        existing = _recover_truncated_csv(raw_path)
+        if existing is None:
+            raise
     for _, row in existing.iterrows():
+        # 전원이 끊겨 잘린 마지막 행은 pandas가 오류 없이 통과시키기도 한다(모자란
+        # 칸을 NaN으로 채운다). 그걸 완료로 세면 그 응답은 resume이 영영 건너뛰고
+        # 데이터가 조용히 한 칸 빈다 — 로그에도 안 남는다. timestamp는 행의 마지막
+        # 칸이므로, 그것까지 있어야 그 행이 끝까지 쓰인 것이다.
+        if any(
+            pd.isna(row.get(col)) or str(row.get(col)).strip() == ""
+            for col in ("run_id", "model_key", "prompt_type", "question_id", "repeat", "is_mock", "timestamp")
+        ):
+            logger.warning(
+                "resume: 끝까지 쓰이지 않은 행을 발견해 미완료로 취급합니다 "
+                "(question_id=%s). 이번 실행에서 다시 생성됩니다.",
+                row.get("question_id"),
+            )
+            continue
         key = (
             row["run_id"],
             row["model_key"],
@@ -77,6 +100,37 @@ def _load_done_keys(raw_path: str) -> Set[Tuple]:
         )
         done.add(key)
     return done
+
+
+def _recover_truncated_csv(raw_path: str) -> Optional[pd.DataFrame]:
+    """끝이 잘린 raw_responses.csv에서 마지막 온전한 행까지만 살려서 돌려준다.
+
+    잘린 꼬리는 원본을 `.truncated-<타임스탬프>` 로 백업한 뒤 파일에서 잘라낸다.
+    잘라낸 행은 resume이 미완료로 보고 다시 생성하므로 데이터 손실은 없다.
+    """
+    with open(raw_path, "r", encoding="utf-8-sig", newline="") as f:
+        text = f.read()
+    lines = text.splitlines(keepends=True)
+    for drop in range(1, min(len(lines), 50) + 1):
+        candidate = "".join(lines[:-drop])
+        if not candidate.strip():
+            return None
+        try:
+            df = pd.read_csv(io.StringIO(candidate), dtype=str)
+        except (pd.errors.ParserError, pd.errors.EmptyDataError):
+            continue
+        backup = f"{raw_path}.truncated-{time.strftime('%Y%m%d-%H%M%S')}"
+        shutil.copy2(raw_path, backup)
+        with open(raw_path, "w", encoding="utf-8", newline="") as f:
+            f.write(candidate)
+        logger.warning(
+            "%s의 마지막 %d줄이 잘려 있었습니다(전원 차단으로 보입니다). "
+            "원본을 %s에 백업하고 잘린 꼬리를 잘라냈습니다 — 해당 응답은 이번 "
+            "실행에서 다시 생성됩니다.",
+            raw_path, drop, backup,
+        )
+        return df
+    return None
 
 
 def _check_and_record_run_meta(meta_path: str, run_id: str, is_mock: bool) -> None:
@@ -226,6 +280,11 @@ def run(config_path: str) -> None:
                         }
                         writer.writerow(row)
                         csv_file.flush()
+                        # flush()는 OS 버퍼까지만이다. 이 실험은 전원이 예고 없이
+                        # 끊기는 기계에서 돌기 때문에(학교 건물 야간 차단) 버퍼에만
+                        # 있던 행은 그대로 사라진다. 응답 1건이 8초씩 걸리므로
+                        # fsync 비용은 무시할 수 있다 — 잃는 쪽이 훨씬 비싸다.
+                        os.fsync(csv_file.fileno())
                         written += 1
                         pbar.update(1)
     finally:
