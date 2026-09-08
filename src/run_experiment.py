@@ -13,7 +13,7 @@ import shutil
 import time
 from collections import Counter
 from datetime import datetime, timezone
-from typing import Dict, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Set, Tuple
 
 import pandas as pd
 import yaml
@@ -154,6 +154,24 @@ def _recover_truncated_csv(raw_path: str) -> Optional[pd.DataFrame]:
     return None
 
 
+
+MAX_CONSECUTIVE_FAILURES = 15
+
+
+def _write_failed_rows(raw_dir: str, rows: list) -> None:
+    """실패한 응답을 따로 남긴다. 어떤 문항이 매번 죽는지 봐야 원인을 안다."""
+    if not rows:
+        return
+    path = f"{raw_dir}/failed_responses.csv"
+    exists = os.path.exists(path) and os.path.getsize(path) > 0
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=["model_key", "prompt_type", "question_id", "repeat", "error"])
+        if not exists:
+            w.writeheader()
+        w.writerows(rows)
+    rows.clear()
+
+
 def _check_and_record_run_meta(meta_path: str, run_id: str, is_mock: bool) -> None:
     """run_id 디렉터리의 .run_meta.json으로 mock/real 혼입을 막는다 (defect 7).
 
@@ -228,6 +246,9 @@ def run(config_path: str) -> None:
     # max_tokens 부족). 파일럿에서 둘을 갈라내는 데 별도 도구가 필요했으므로
     # 요약에 같이 띄운다.
     truncated_counter: Dict[str, int] = {c: 0 for c in conditions}
+    failed = 0
+    consecutive_failures = 0
+    failed_rows: list[Dict[str, Any]] = []
 
     file_exists = os.path.exists(raw_path) and os.path.getsize(raw_path) > 0
     csv_file = open(raw_path, "a", newline="", encoding="utf-8")
@@ -254,7 +275,8 @@ def run(config_path: str) -> None:
 
                         seed = seeds[repeat % len(seeds)]
 
-                        completion = client.complete(
+                        try:
+                            completion = client.complete(
                             model_key=model_key,
                             lms_id=model["lms_id"],
                             prompt_type=prompt_type,
@@ -266,8 +288,42 @@ def run(config_path: str) -> None:
                             temperature=gen_cfg["temperature"],
                             top_p=gen_cfg["top_p"],
                             max_tokens=gen_cfg["max_tokens"],
-                            reasoning_effort=gen_cfg.get("reasoning_effort"),
-                        )
+                                reasoning_effort=gen_cfg.get("reasoning_effort"),
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            # 응답 하나가 실행 전체를 죽이면 안 된다. 2026-09-09에
+                            # LM Studio 엔진이 특정 요청에서 500("peg-native format")을
+                            # 뱉었고, 재시도 3회가 전부 같은 프롬프트라 똑같이 실패한 뒤
+                            # 4,200건짜리 실행이 1,034건에서 멈췄다. 행을 쓰지 않고
+                            # 넘어가면 resume이 다음 실행에서 이것만 다시 시도한다.
+                            failed += 1
+                            consecutive_failures += 1
+                            failed_rows.append({
+                                "model_key": model_key, "prompt_type": prompt_type,
+                                "question_id": question_id, "repeat": repeat,
+                                "error": f"{type(exc).__name__}: {exc}"[:500],
+                            })
+                            logger.warning(
+                                "응답 실패(건너뜀): %s/%s/%s repeat=%d — %s",
+                                model_key, prompt_type, question_id, repeat, type(exc).__name__,
+                            )
+                            # 다만 연달아 실패하면 서버가 죽었거나 모델이 내려간 것이다.
+                            # 그때는 4,200건을 빈손으로 훑는 대신 즉시 멈춘다.
+                            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                                logger.error(
+                                    "연속 %d건 실패 — 서버나 모델 상태를 의심해야 합니다. 중단합니다. "
+                                    "지금까지 쓴 %d건은 남아 있고 resume이 이어받습니다.",
+                                    consecutive_failures, written,
+                                )
+                                pbar.close()
+                                _write_failed_rows(raw_dir, failed_rows)
+                                csv_file.close()
+                                raise RuntimeError(
+                                    f"연속 {consecutive_failures}건 실패로 중단했습니다."
+                                ) from exc
+                            pbar.update(1)
+                            continue
+                        consecutive_failures = 0
 
                         response_final, format_ok, parse_mode = parse_final_answer(completion.text)
                         format_ok_counter[prompt_type]["ok" if format_ok else "bad"] += 1
@@ -319,7 +375,14 @@ def run(config_path: str) -> None:
         csv_file.close()
 
     logger.info("=== 실행 요약 ===")
-    logger.info("작성된 행: %d, 건너뛴 행(resume): %d", written, skipped)
+    _write_failed_rows(raw_dir, failed_rows)
+    logger.info("작성된 행: %d, 건너뛴 행(resume): %d, 실패(건너뜀): %d", written, skipped, failed)
+    if failed:
+        logger.warning(
+            "실패한 %d건은 행을 쓰지 않았으므로 같은 명령을 다시 돌리면 이것만 재시도합니다. "
+            "매번 같은 것이 실패하면 %s/failed_responses.csv 의 error 열을 보십시오.",
+            failed, raw_dir,
+        )
     for prompt_type, counter in format_ok_counter.items():
         total = counter["ok"] + counter["bad"]
         if total == 0:
