@@ -71,6 +71,7 @@ RAW_COLUMNS = [
     "latency_ms",
     "finish_reason",
     "format_ok",
+    "parse_mode",
     "timestamp",
 ]
 
@@ -79,6 +80,7 @@ EVAL_COLUMNS = RAW_COLUMNS + [
     "decided_by",
     "judge_votes",
     "abstain_with_claim",
+    "response_kind",
     "human_label",
     "human_rater_id",
 ]
@@ -87,6 +89,10 @@ _FINAL_MARKER = "[최종답변]"
 # [최종답변] 다음에 다른 섹션 헤더(예: 모델이 실수로 덧붙인 [참고] 등)가
 # 이어지는 경우를 대비해, 응답 끝에 남은 트레일링 브래킷 섹션 헤더 한 줄을 제거한다.
 _TRAILING_SECTION_RE = re.compile(r"\n\s*\[[^\[\]\n]{1,20}\]\s*$")
+# 마커가 없을 때 "마지막 대괄호 섹션 헤더"를 찾는 데 쓴다(결함 #2 대응). 헤더
+# 이름은 무관하다 — [초안]/[검토]/[재진술]/[배경] 등 무엇이든 텍스트에 등장하는
+# 마지막 `[...]` 한 줄을 찾아 그 이후 텍스트를 취한다.
+_SECTION_HEADER_RE = re.compile(r"\[[^\[\]\n]{1,20}\]")
 
 
 def load_questions(path: str) -> pd.DataFrame:
@@ -174,17 +180,35 @@ def load_questions(path: str) -> pd.DataFrame:
     return df
 
 
-def parse_final_answer(text: str) -> Tuple[str, bool]:
-    """응답 텍스트에서 마지막 [최종답변] 마커 이후 내용을 추출한다.
+def parse_final_answer(text: str) -> Tuple[str, bool, str]:
+    """응답 텍스트에서 채점 대상이 될 최종 텍스트를 추출한다.
 
-    마커가 없으면 (전체 텍스트.strip(), False)를 반환한다.
-    마커가 있으면 (마커 이후 텍스트.strip(), True)를 반환하며, 그 뒤에 다른
-    브래킷 섹션 헤더가 트레일링으로 붙어 있으면 제거한다.
+    (response_final, format_ok, parse_mode)의 3-튜플을 반환한다.
+    format_ok은 기존 의미 그대로 "[최종답변] 마커가 있었는가"이며(조건별 형식
+    준수율 지표이므로 의미를 바꾸지 않는다), parse_mode는 어느 경로로 텍스트를
+    골라냈는지를 기록하는 진단용 컬럼이다:
+
+    - "marker": [최종답변] 마커가 있어 그 뒤를 취했다(format_ok=True).
+    - "last_section": 마커는 없지만 [초안]/[검토]/[재진술]/[배경] 등 대괄호
+      섹션 헤더가 있어(이름은 무관), 텍스트에 등장하는 마지막 헤더 이후를
+      취했다(format_ok=False). P2/P3/P2L처럼 초안 -> 검토 절차가 있는 조건에서
+      마커를 빠뜨린 경우, 검토 단계에서 스스로 철회한 초안 내용이 채점 대상에
+      섞여 들어가는 것을 막기 위함이다.
+    - "raw": 대괄호 섹션 헤더가 전혀 없어 전체 텍스트를 그대로 취했다
+      (format_ok=False). P0/P1/P4/P5처럼 섹션 구조가 없는 조건의 정상 동작이다.
     """
     idx = text.rfind(_FINAL_MARKER)
-    if idx == -1:
-        return text.strip(), False
+    if idx != -1:
+        after = text[idx + len(_FINAL_MARKER):]
+        after = _TRAILING_SECTION_RE.sub("", after)
+        return after.strip(), True, "marker"
 
-    after = text[idx + len(_FINAL_MARKER):]
-    after = _TRAILING_SECTION_RE.sub("", after)
-    return after.strip(), True
+    last_header = None
+    for m in _SECTION_HEADER_RE.finditer(text):
+        last_header = m
+    if last_header is not None:
+        after = text[last_header.end():]
+        after = _TRAILING_SECTION_RE.sub("", after)
+        return after.strip(), False, "last_section"
+
+    return text.strip(), False, "raw"

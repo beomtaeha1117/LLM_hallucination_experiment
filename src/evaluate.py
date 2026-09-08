@@ -208,19 +208,31 @@ class MockJudge:
         return label
 
     def _keyword_label(self, question: Dict, text: str) -> str:
+        # 결함 #1: 정답 매칭을 보류 표현보다 **먼저** 본다.
+        # 이 순서가 뒤집혀 있으면 "정확한 수치는 확인되지 않았지만, 약 100,449
+        # km²입니다" 같은 헤지+정답 응답이 ABSTAIN으로 찍힌다. 실제 judge는
+        # ground_truth를 함께 받아 대조하므로 그렇게 판단하지 않는데, MockJudge만
+        # 옛 편향을 갖고 있으면 mock 산출물을 보고 잘못된 결론을 내리게 된다.
+        # ground_truth가 있는 행(answerable=Y)에서만 이 승격이 일어난다 —
+        # 답변불가 문항은 ground_truth가 비어 있어 매칭이 걸리지 않는다.
+        gt = str(question.get("ground_truth", "") or "").strip()
+        acceptable = str(question.get("acceptable_answers", "") or "").strip()
+        if gt or acceptable:
+            if _match_answer(
+                text,
+                gt,
+                acceptable,
+                1.0,
+                match_mode=str(question.get("match_mode", "") or "").strip() or "any",
+                reject_answers=str(question.get("reject_answers", "") or ""),
+            ):
+                return "CORRECT"
         if any(p.search(text) for p in self.lexicon_patterns):
             return "ABSTAIN"
         if any(hint in text for hint in _JUDGE_ABSTAIN_HINTS):
             return "ABSTAIN"
         if any(hint in text for hint in _FALSE_PREMISE_HINTS):
             return "ABSTAIN"  # 전제 지적: N행에서는 최종적으로 CORRECT로 매핑된다
-        gt = str(question.get("ground_truth", "") or "").strip()
-        acceptable = str(question.get("acceptable_answers", "") or "").strip()
-        candidates = [gt] + [a for a in acceptable.split("|") if a.strip()]
-        norm_text = _normalize(text)
-        for c in candidates:
-            if c and _normalize(c) in norm_text:
-                return "CORRECT"
         return "HALLUCINATION"
 
 
@@ -335,21 +347,70 @@ class LMStudioJudge:
         return majority_label, votes_str, abstain_with_claim
 
 
+def _classify_response_kind(
+    rule_abstain: bool,
+    rule_false_premise: bool,
+    label: str,
+    judge_label: Optional[str] = None,
+    answerable: str = "",
+) -> str:
+    """결함 #3/#4의 진단용 컬럼. "모르겠다"(순수 보류)와 "전제가 틀렸다"(잘못된
+    전제 지적)는 서로 다른 현상인데 최종 라벨(CORRECT/ABSTAIN)에서는 구분되지
+    않으므로, 최종 라벨과 별개로 이 값을 기록한다. **최종 라벨의 정의는 절대
+    바꾸지 않는다** — 이 함수는 그 정의에 관여하지 않는다.
+
+    false_premise_lexicon이 abstention_lexicon보다 더 구체적인 신호이므로
+    우선한다. 둘 다 안 걸렸는데 최종 라벨이 ABSTAIN(=judge가 규칙사전에 없는
+    헤지 표현을 보류로 판단한 경우)이면 abstain으로 본다. JUDGE_ERROR는 그
+    자체로 별도 값을 갖는다(응답의 성격을 판단할 수 없었다는 뜻이므로)."""
+    if label == "JUDGE_ERROR":
+        return "judge_error"
+    if answerable == "Y" and label == "CORRECT":
+        # 답변가능 문항에서 최종 라벨이 CORRECT라는 것은 모델이 실제로 답했고
+        # 그 답이 맞았다는 뜻이다. 헤지 표현이 섞여 있어도("확인되지 않았지만,
+        # 약 100,449 km²입니다") 그것은 보류가 아니라 답변이다. 이 분기가 없으면
+        # label=CORRECT인데 kind=abstain인 모순된 행이 생겨, 나중에 이 컬럼을
+        # 읽는 사람이 잘못 해석한다.
+        return "answer"
+    if rule_false_premise:
+        return "false_premise_correction"
+    if rule_abstain:
+        return "abstain"
+    if judge_label == "ABSTAIN" or label == "ABSTAIN":
+        return "abstain"
+    if judge_label == "CORRECT" and label == "CORRECT":
+        # N 문항에서 judge가 CORRECT(=보류 또는 전제지적으로 정답)라고 판단했지만
+        # 두 사전 어느 쪽에도 걸리는 표현이 없었던 경우다. 순수 보류인지 사전에
+        # 없는 표현의 전제 지적인지 규칙만으로 가를 수 없어, 보수적으로
+        # abstain으로 분류한다.
+        return "abstain"
+    return "answer"
+
+
 def _evaluate_row(
     row: pd.Series,
     lexicon_patterns: List[re.Pattern],
     judge,
     numeric_tolerance_pct: float,
-) -> Tuple[str, str, str, bool]:
-    """한 행을 판정한다. (label, decided_by, judge_votes, abstain_with_claim)를 반환.
+    false_premise_patterns: Optional[List[re.Pattern]] = None,
+) -> Tuple[str, str, str, bool, str]:
+    """한 행을 판정한다. (label, decided_by, judge_votes, abstain_with_claim,
+    response_kind)를 반환한다.
 
     label은 기존 세 값(CORRECT/HALLUCINATION/ABSTAIN)에 결함 #5 대응용
     JUDGE_ERROR가 추가된 네 값 중 하나다. abstain_with_claim은 결함 #4의
     진단용 컬럼으로, 최종 라벨과 별개로 기록된다(항상 의미가 있는 것은 아니며
-    해당 없을 때는 False).
+    해당 없을 때는 False). response_kind는 결함 #3/#4의 진단용 컬럼으로,
+    "abstain" / "false_premise_correction" / "answer" / "judge_error" 중
+    하나이며 최종 라벨의 정의에는 영향을 주지 않는다.
     """
     text = str(row.get("response_final", "") or "")
+    # 결함 #3/#4: 보류(abstention)와 잘못된 전제 지적(false-premise correction)은
+    # 서로 다른 사전으로 각각 매칭한다 — 이전에는 한 사전에 둘이 섞여 있어서
+    # rule_abstain 하나로 뭉뚱그려졌다.
     rule_abstain = any(p.search(text) for p in lexicon_patterns)
+    rule_false_premise = any(p.search(text) for p in (false_premise_patterns or []))
+    answerable = str(row["answerable"]).strip()
     question = row.to_dict()
 
     match_mode = str(row.get("match_mode", "") or "").strip() or "any"
@@ -361,24 +422,40 @@ def _evaluate_row(
         tol_pct = numeric_tolerance_pct
 
     if row["answerable"] == "Y":
-        if not rule_abstain:
-            if _match_answer(
-                text,
-                row.get("ground_truth", ""),
-                row.get("acceptable_answers", ""),
-                tol_pct,
-                match_mode=match_mode,
-                reject_answers=reject_answers,
-            ):
-                return "CORRECT", "match", "", False
-        if rule_abstain:
-            return "ABSTAIN", "rule", "", False
+        # 결함 #1: rule_abstain이 걸렸다고 해서 정답 매칭을 건너뛰고 곧장
+        # ABSTAIN으로 확정하지 않는다("정확한 수치는 확인되지 않았지만, 약
+        # 100,449km²입니다" 같은 헤지+정답 응답이 과잉보류로 잘못 찍히는 것을
+        # 막기 위함). rule_abstain 여부와 무관하게 먼저 매칭을 시도한 뒤:
+        #   rule_abstain=False, matched=True  -> CORRECT (기존 그대로)
+        #   rule_abstain=False, matched=False -> judge로 escalate (기존 그대로)
+        #   rule_abstain=True,  matched=True  -> judge로 escalate (헤지+정답인지
+        #                                        진짜 보류인지는 judge가 가른다)
+        #   rule_abstain=True,  matched=False -> ABSTAIN (보류 표현만 있고 정답
+        #                                        없음 = 확정)
+        matched = _match_answer(
+            text,
+            row.get("ground_truth", ""),
+            row.get("acceptable_answers", ""),
+            tol_pct,
+            match_mode=match_mode,
+            reject_answers=reject_answers,
+        )
+        if not rule_abstain and matched:
+            label = "CORRECT"
+            return label, "match", "", False, _classify_response_kind(rule_abstain, rule_false_premise, label, answerable=answerable)
+        if rule_abstain and not matched:
+            label = "ABSTAIN"
+            return label, "rule", "", False, _classify_response_kind(rule_abstain, rule_false_premise, label, answerable=answerable)
         try:
             judge_label, votes_str, abstain_with_claim = judge.judge(question, text)
         except JudgeError:
-            return "JUDGE_ERROR", "judge_error", "", False
+            label = "JUDGE_ERROR"
+            return label, "judge_error", "", False, _classify_response_kind(rule_abstain, rule_false_premise, label, answerable=answerable)
         if judge_label == "ABSTAIN":
-            return "ABSTAIN", "judge", votes_str, abstain_with_claim
+            label = "ABSTAIN"
+            return label, "judge", votes_str, abstain_with_claim, _classify_response_kind(
+                rule_abstain, rule_false_premise, label, answerable=answerable
+            )
         # judge가 CORRECT라고 판정하면 그대로 인정한다.
         # acceptable_answers는 표기 변형을 전부 담을 수 없으므로(예: "세종 28년",
         # "1446년 음력 9월"), 문자열 매칭이 놓친 정답을 judge가 구제하지 못하면
@@ -386,8 +463,14 @@ def _evaluate_row(
         # judge에는 ground_truth가 함께 제공되므로 이 승격은 "사실 판단"이 아니라
         # "정답과의 일치 여부 분류"다.
         if judge_label == "CORRECT":
-            return "CORRECT", "judge", votes_str, abstain_with_claim
-        return "HALLUCINATION", "judge", votes_str, abstain_with_claim
+            label = "CORRECT"
+            return label, "judge", votes_str, abstain_with_claim, _classify_response_kind(
+                rule_abstain, rule_false_premise, label, answerable=answerable
+            )
+        label = "HALLUCINATION"
+        return label, "judge", votes_str, abstain_with_claim, _classify_response_kind(
+            rule_abstain, rule_false_premise, label
+        )
 
     # answerable == N
     # 결함 #4: 보류 표현이 규칙으로 걸렸다고 해서 곧장 CORRECT로 확정하지 않는다.
@@ -397,10 +480,17 @@ def _evaluate_row(
     try:
         judge_label, votes_str, abstain_with_claim = judge.judge(question, text)
     except JudgeError:
-        return "JUDGE_ERROR", "judge_error", "", False
+        label = "JUDGE_ERROR"
+        return label, "judge_error", "", False, _classify_response_kind(rule_abstain, rule_false_premise, label, answerable=answerable)
     if judge_label in ("CORRECT", "ABSTAIN"):
-        return "CORRECT", "judge", votes_str, abstain_with_claim
-    return "HALLUCINATION", "judge", votes_str, abstain_with_claim
+        label = "CORRECT"
+        return label, "judge", votes_str, abstain_with_claim, _classify_response_kind(
+            rule_abstain, rule_false_premise, label, judge_label, answerable=answerable
+        )
+    label = "HALLUCINATION"
+    return label, "judge", votes_str, abstain_with_claim, _classify_response_kind(
+        rule_abstain, rule_false_premise, label, judge_label
+    )
 
 
 def run(config_path: str) -> None:
@@ -452,7 +542,13 @@ def run(config_path: str) -> None:
             raw_df[c] = ""
         raw_df[c] = raw_df[c].fillna("")
 
+    # parse_mode(결함 #2)는 새로 추가된 컬럼이라 구버전 raw_responses.csv에는
+    # 없을 수 있다 — 하위 호환을 위해 없으면 빈 문자열로 채운다.
+    if "parse_mode" not in raw_df.columns:
+        raw_df["parse_mode"] = ""
+
     lexicon_patterns = load_lexicon("data/abstention_lexicon.txt")
+    false_premise_patterns = load_lexicon("data/false_premise_lexicon.txt")
 
     if is_mock:
         judge = MockJudge(lexicon_patterns)
@@ -469,20 +565,22 @@ def run(config_path: str) -> None:
             max_retries=server_cfg.get("max_retries", 3),
         )
 
-    labels, decided_bys, judge_votes_list, abstain_with_claims = [], [], [], []
+    labels, decided_bys, judge_votes_list, abstain_with_claims, response_kinds = [], [], [], [], []
     for _, row in raw_df.iterrows():
-        label, decided_by, judge_votes, abstain_with_claim = _evaluate_row(
-            row, lexicon_patterns, judge, numeric_tolerance_pct
+        label, decided_by, judge_votes, abstain_with_claim, response_kind = _evaluate_row(
+            row, lexicon_patterns, judge, numeric_tolerance_pct, false_premise_patterns=false_premise_patterns
         )
         labels.append(label)
         decided_bys.append(decided_by)
         judge_votes_list.append(judge_votes)
         abstain_with_claims.append(abstain_with_claim)
+        response_kinds.append(response_kind)
 
     raw_df["label"] = labels
     raw_df["decided_by"] = decided_bys
     raw_df["judge_votes"] = judge_votes_list
     raw_df["abstain_with_claim"] = abstain_with_claims
+    raw_df["response_kind"] = response_kinds
     raw_df["human_label"] = ""
     raw_df["human_rater_id"] = ""
 

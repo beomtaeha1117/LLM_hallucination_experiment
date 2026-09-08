@@ -209,6 +209,25 @@ def compute_summary(df: pd.DataFrame, alpha: float) -> pd.DataFrame:
 
         format_ok = _rate_with_ci_cluster(g.assign(_ind=g["format_ok_bool"]), "_ind", alpha)
 
+        # 결함 #2: parse_mode 분포(marker/last_section/raw 비율). 조건별로 마커를
+        # 얼마나 빠뜨렸는지, 빠뜨렸을 때 last_section 경로로 얼마나 구제됐는지를
+        # 본다. 구버전 raw_responses.csv에는 parse_mode 컬럼이 없을 수 있어
+        # 안전하게 처리한다.
+        parse_mode_col = g["parse_mode"] if "parse_mode" in g.columns else pd.Series([""] * len(g), index=g.index)
+        parse_mode_rate = (
+            parse_mode_col.value_counts(normalize=True).to_dict() if len(g) else {}
+        )
+
+        # 결함 #3/#4: answerable=N 행에서 false_premise_correction 비율. 기존
+        # 지표 6종(correct_abstention_rate 포함)의 계산식은 건드리지 않는다 —
+        # 이건 그 내부를 더 쪼갠 진단용 보조 지표다.
+        if "response_kind" in n_g.columns and len(n_g):
+            false_premise_correction = _rate_with_ci_cluster(
+                n_g.assign(_ind=(n_g["response_kind"] == "false_premise_correction")), "_ind", alpha
+            )
+        else:
+            false_premise_correction = {"rate": float("nan"), "ci_low": float("nan"), "ci_high": float("nan")}
+
         rows.append(
             {
                 "model_key": model_key,
@@ -240,6 +259,12 @@ def compute_summary(df: pd.DataFrame, alpha: float) -> pd.DataFrame:
                 "format_ok_rate": format_ok["rate"],
                 "format_ok_rate_ci_low": format_ok["ci_low"],
                 "format_ok_rate_ci_high": format_ok["ci_high"],
+                "parse_mode_marker_rate": parse_mode_rate.get("marker", 0.0),
+                "parse_mode_last_section_rate": parse_mode_rate.get("last_section", 0.0),
+                "parse_mode_raw_rate": parse_mode_rate.get("raw", 0.0),
+                "false_premise_correction_rate": false_premise_correction["rate"],
+                "false_premise_correction_rate_ci_low": false_premise_correction["ci_low"],
+                "false_premise_correction_rate_ci_high": false_premise_correction["ci_high"],
             }
         )
 

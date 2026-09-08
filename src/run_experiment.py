@@ -190,7 +190,7 @@ def run(config_path: str) -> None:
                             thinking=gen_cfg.get("thinking"),
                         )
 
-                        response_final, format_ok = parse_final_answer(completion.text)
+                        response_final, format_ok, parse_mode = parse_final_answer(completion.text)
                         format_ok_counter[prompt_type]["ok" if format_ok else "bad"] += 1
 
                         row = {
@@ -220,6 +220,7 @@ def run(config_path: str) -> None:
                             "latency_ms": completion.latency_ms,
                             "finish_reason": completion.finish_reason,
                             "format_ok": format_ok,
+                            "parse_mode": parse_mode,
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                         }
                         writer.writerow(row)
