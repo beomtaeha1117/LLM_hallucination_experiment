@@ -24,11 +24,27 @@ from src.schema import RAW_COLUMNS, load_questions, parse_final_answer
 
 logger = logging.getLogger("run_experiment")
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
-# openai/httpx가 호출마다 INFO로 "HTTP Request: POST ... 200 OK"를 찍는다. 응답 하나당
-# 한 줄이라 진행 막대가 매번 밀려서 실행을 지켜볼 수가 없고, 로그 파일도 그 줄로 뒤덮인다.
-# 실패는 예외로 올라오고 재시도는 client.py가 따로 경고하므로 이 줄들은 없어도 된다.
-for _noisy in ("httpx", "httpcore", "openai"):
-    logging.getLogger(_noisy).setLevel(logging.WARNING)
+# openai의 HTTP 계층이 호출마다 INFO로 "HTTP Request: POST ... 200 OK"를 찍는다. 응답
+# 하나당 한 줄이라 진행 막대가 매번 밀려서 실행을 지켜볼 수가 없고, 로그 파일도 그 줄로
+# 뒤덮인다. 실패는 예외로 올라오고 재시도는 client.py가 따로 경고하므로 없어도 된다.
+#
+# setLevel로 끄지 않는 이유가 둘이다. openai 3.x는 httpx가 아니라 httpx2/httpcore2를
+# 쓰므로 이름을 못 박으면 빗나가고("httpx"만 껐다가 전부 그대로 찍힌 적이 있다),
+# 그 로거들은 첫 요청 때 만들어지므로 임포트 시점에 이름을 훑어봐야 아직 없다.
+# 핸들러에 필터를 걸면 로거가 언제 생기든, 이름이 무엇으로 바뀌든 걸린다.
+_NOISY_PREFIXES = ("httpx", "httpcore", "openai", "urllib3")
+
+
+class _DropNoisyHTTP(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not (
+            record.name.startswith(_NOISY_PREFIXES) and record.levelno < logging.WARNING
+        )
+
+
+for _h in logging.getLogger().handlers:
+    _h.addFilter(_DropNoisyHTTP())
+
 
 def _load_prompt(prompt_type: str) -> str:
     """prompts/<조건이름>_*.txt 를 조건 이름으로 찾아 읽는다.
