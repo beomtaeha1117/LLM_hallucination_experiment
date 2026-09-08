@@ -1,0 +1,21 @@
+# 본실험 — 주모델 1종. 200문항 x 7조건 x 3반복 = 4,200응답.
+#
+# 🚨 모델을 하나만 두는 이유. run_experiment는 모델을 가장 바깥에서 돌기 때문에
+#    3종을 한 config에 넣으면 실행 도중 모델이 바뀌고, 그때 LM Studio가 JIT로
+#    다음 모델을 올린다 — 컨텍스트가 기본값(262144)으로 잡힌다. 통제변인이
+#    실행 중간부터 어긋나고 로그에는 아무것도 안 남는다. tools/preflight.py는
+#    시작 전 한 번만 보므로 이걸 못 잡는다.
+#    따라서 모델마다 config를 따로 두고, 사람이 직접 로드(ctx 8192)한 뒤 돌린다.
+#    주모델은 config_main_qwen35.yaml.
+run_id: main_gemma4
+mock: false
+questions_file: data/questions_v1_DRAFT.csv
+server: {base_url: "http://localhost:1234/v1", api_key: "lm-studio", timeout_s: 300, max_retries: 3}
+generation: {temperature: 0.7, top_p: 0.9, max_tokens: 2048, reasoning_effort: "none"}
+repeats: 3
+seeds: [1, 2, 3]
+conditions: [P0, P1, P2, P3, P2L, P4, P5]
+models:
+  - {key: gemma4, lms_id: "gemma-4-12b-it-qat", quant: Q4_0_QAT, engine: llama.cpp}  # google 공식 QAT (7.2GB)
+judge: {key: judge_model, lms_id: "devstral-small-2-24b-instruct-2512", temperature: 0.0, votes: 1}
+analysis: {alpha: 0.05, numeric_tolerance_pct: 1.0}
