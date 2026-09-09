@@ -32,7 +32,12 @@ def main(run_dir: str) -> None:
           f"({df['trunc'].mean() * 100:.2f}%)")
 
     # 계획한 응답 수를 못 채운 칸이 있는지 — 실패로 빠진 자리를 눈에 보이게 한다.
-    expected = df.groupby("prompt_type")["question_id"].nunique().max() * df["repeat"].nunique()
+    # 모델 수를 빼먹으면 음수가 나온다(mock은 모델 3종이라 조건당 27x3x3=243이다).
+    expected = (
+        df["model_key"].nunique()
+        * df["question_id"].nunique()
+        * df["repeat"].nunique()
+    )
     short = {c: expected - len(df[df["prompt_type"] == c]) for c in df["prompt_type"].unique()}
     missing = {c: n for c, n in short.items() if n}
     if missing:
