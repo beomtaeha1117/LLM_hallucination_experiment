@@ -172,6 +172,28 @@ def _write_failed_rows(raw_dir: str, rows: list) -> None:
     rows.clear()
 
 
+
+def _summarize_file(raw_path: str, conditions: list) -> Dict[str, Tuple[int, int, int]]:
+    """raw_responses.csv 전체에서 조건별 (총건수, format_ok, 잘림)을 센다.
+
+    실행 중 카운터가 아니라 파일을 보는 이유는 resume 때문이다 — 건너뛴 행은
+    카운터에 없으므로, 이어붙인 실행일수록 요약이 실제와 멀어진다.
+    """
+    out: Dict[str, Tuple[int, int, int]] = {c: (0, 0, 0) for c in conditions}
+    if not os.path.exists(raw_path) or os.path.getsize(raw_path) == 0:
+        return out
+    try:
+        df = pd.read_csv(raw_path, dtype=str, encoding="utf-8-sig")
+    except (pd.errors.EmptyDataError, pd.errors.ParserError):
+        return out
+    ok = df["format_ok"].astype(str).str.lower().isin(["true", "1"])
+    trunc = df["finish_reason"].astype(str) == "length"
+    for c in conditions:
+        m = df["prompt_type"] == c
+        out[c] = (int(m.sum()), int((m & ok).sum()), int((m & trunc).sum()))
+    return out
+
+
 def _check_and_record_run_meta(meta_path: str, run_id: str, is_mock: bool) -> None:
     """run_id 디렉터리의 .run_meta.json으로 mock/real 혼입을 막는다 (defect 7).
 
@@ -383,17 +405,19 @@ def run(config_path: str) -> None:
             "매번 같은 것이 실패하면 %s/failed_responses.csv 의 error 열을 보십시오.",
             failed, raw_dir,
         )
-    for prompt_type, counter in format_ok_counter.items():
-        total = counter["ok"] + counter["bad"]
+    # 🚨 이번 실행에서 새로 쓴 행만 세면 안 된다. 2026-09-09에 1,034건을 resume으로
+    # 건너뛴 실행의 요약에서 P0가 통째로 빠지고 P1이 n=165로 찍혔다 — 실제로는 둘 다
+    # 600건이었다. 중단됐다 이어붙인 실행일수록 요약이 더 크게 어긋나는데, 그런 실행이
+    # 정확히 요약을 보고 싶은 실행이다. 그래서 파일 전체를 다시 읽어 집계한다.
+    for prompt_type, (total, n_ok, n_trunc) in _summarize_file(raw_path, conditions).items():
         if total == 0:
             continue
-        rate = counter["ok"] / total
-        n_trunc = truncated_counter.get(prompt_type, 0)
+        rate = n_ok / total
         logger.info(
             "  %s: format_ok_rate=%.3f (n=%d), 잘림(max_tokens 도달)=%d",
             prompt_type, rate, total, n_trunc,
         )
-        n_bad = counter["bad"]
+        n_bad = total - n_ok
         # n_bad를 먼저 본다: 형식 실패가 없는데 경고를 띄우면 안 된다. 잘렸어도
         # 마커까지는 쓴 응답이 있어서 잘림 수가 실패 수보다 많을 수 있다(P3에서 그랬다).
         if n_bad and n_trunc >= n_bad * 0.5:
