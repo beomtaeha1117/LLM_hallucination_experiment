@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import logging
@@ -23,11 +24,15 @@ from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import yaml
+from tqdm import tqdm
 
 from src.schema import EVAL_COLUMNS, load_questions
 
+from src.logging_setup import quiet_http_logs
+
 logger = logging.getLogger("evaluate")
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+quiet_http_logs()
 
 _JUDGE_ABSTAIN_HINTS = ["가지고 있지 않", "범위 밖", "확신을 가지고", "말씀드리기 조심스럽"]
 _FALSE_PREMISE_HINTS = ["잘못된 전제", "존재하지 않", "사실이 아닙", "성립하지 않"]
@@ -493,6 +498,23 @@ def _evaluate_row(
     )
 
 
+
+def _load_done_eval_keys(out_path: str) -> set:
+    """이미 판정된 (model_key, prompt_type, question_id, repeat) 집합을 읽는다."""
+    if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
+        return set()
+    try:
+        df = pd.read_csv(out_path, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    except (pd.errors.EmptyDataError, pd.errors.ParserError):
+        return set()
+    need = ("model_key", "prompt_type", "question_id", "repeat", "label")
+    if any(c not in df.columns for c in need):
+        return set()
+    # 끝까지 쓰이지 않은 행(전원 차단 등)은 미완료로 본다 — label이 비면 판정 전이다.
+    df = df[df["label"].str.strip() != ""]
+    return set(zip(df["model_key"], df["prompt_type"], df["question_id"], df["repeat"]))
+
+
 def run(config_path: str) -> None:
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
@@ -566,32 +588,60 @@ def run(config_path: str) -> None:
         )
 
     labels, decided_bys, judge_votes_list, abstain_with_claims, response_kinds = [], [], [], [], []
-    for _, row in raw_df.iterrows():
-        label, decided_by, judge_votes, abstain_with_claim, response_kind = _evaluate_row(
-            row, lexicon_patterns, judge, numeric_tolerance_pct, false_premise_patterns=false_premise_patterns
-        )
-        labels.append(label)
-        decided_bys.append(decided_by)
-        judge_votes_list.append(judge_votes)
-        abstain_with_claims.append(abstain_with_claim)
-        response_kinds.append(response_kind)
-
-    raw_df["label"] = labels
-    raw_df["decided_by"] = decided_bys
-    raw_df["judge_votes"] = judge_votes_list
-    raw_df["abstain_with_claim"] = abstain_with_claims
-    raw_df["response_kind"] = response_kinds
-    raw_df["human_label"] = ""
-    raw_df["human_rater_id"] = ""
-
-    out_df = raw_df[EVAL_COLUMNS]
+    # 🚨 판정은 12,593건이면 10시간이 넘는다. 예전에는 전부 메모리에 쌓아뒀다가
+    # 마지막에 한 번 썼는데, 그러면 9시간째에 죽었을 때 전부 잃는다 — 생성
+    # 단계에서 이미 겪은 실패다. 한 행씩 쓰고 fsync하고, 다시 돌리면 이어받는다.
     os.makedirs(f"results/{run_id}", exist_ok=True)
     out_path = f"results/{run_id}/evaluated.csv"
-    out_df.to_csv(out_path, index=False)
-    logger.info("%s 작성 완료 (%d행)", out_path, len(out_df))
+    done_keys = _load_done_eval_keys(out_path)
+    if done_keys:
+        logger.info("이미 판정된 행 %d건 발견 (resume)", len(done_keys))
+
+    file_exists = os.path.exists(out_path) and os.path.getsize(out_path) > 0
+    f_out = open(out_path, "a", newline="", encoding="utf-8")
+    writer = csv.DictWriter(f_out, fieldnames=EVAL_COLUMNS, extrasaction="ignore")
+    if not file_exists:
+        writer.writeheader()
+        f_out.flush()
+
+    written = skipped = 0
+    try:
+        for _, row in tqdm(raw_df.iterrows(), total=len(raw_df), desc="judging"):
+            key = (str(row.get("model_key", "")), str(row.get("prompt_type", "")),
+                   str(row.get("question_id", "")), str(row.get("repeat", "")))
+            if key in done_keys:
+                skipped += 1
+                continue
+            label, decided_by, judge_votes, abstain_with_claim, response_kind = _evaluate_row(
+                row, lexicon_patterns, judge, numeric_tolerance_pct,
+                false_premise_patterns=false_premise_patterns,
+            )
+            out_row = row.to_dict()
+            out_row.update({
+                "label": label, "decided_by": decided_by, "judge_votes": judge_votes,
+                "abstain_with_claim": abstain_with_claim, "response_kind": response_kind,
+                "human_label": "", "human_rater_id": "",
+            })
+            writer.writerow(out_row)
+            f_out.flush()
+            os.fsync(f_out.fileno())
+            written += 1
+    finally:
+        f_out.close()
+
+    out_df = pd.read_csv(out_path, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    logger.info("%s 작성 완료 (총 %d행, 이번에 %d건, 건너뜀 %d건)",
+                out_path, len(out_df), written, skipped)
 
     logger.info("decided_by 분포:\n%s", out_df["decided_by"].value_counts().to_string())
     logger.info("label 분포:\n%s", out_df["label"].value_counts().to_string())
+    n_err = int((out_df["label"] == "JUDGE_ERROR").sum())
+    if n_err:
+        logger.warning(
+            "JUDGE_ERROR %d건 — judge 호출이 최종 실패한 행입니다. 환각으로 세면 안 되고, "
+            "다시 돌려도 이 행들은 이미 기록돼 있어 재시도되지 않습니다. 재시도하려면 "
+            "evaluated.csv에서 해당 행을 지우고 다시 실행하십시오.", n_err,
+        )
 
 
 def main() -> None:
