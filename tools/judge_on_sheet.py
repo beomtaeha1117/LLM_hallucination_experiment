@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import logging
 import os
 import re
 
@@ -26,6 +27,7 @@ from tqdm import tqdm
 # tools/ 에서 직접 실행해도 src 를 찾게 한다 (다른 tools 는 src 를 안 쓴다).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.evaluate import LMStudioJudge  # noqa: E402
+from src.logging_setup import quiet_http_logs  # noqa: E402
 
 
 def main() -> None:
@@ -36,6 +38,9 @@ def main() -> None:
     ap.add_argument("--out", default=None)
     ap.add_argument("--votes", type=int, default=1)
     args = ap.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+    quiet_http_logs()
 
     cfg = yaml.safe_load(open(args.config, encoding="utf-8"))
     lms_id = args.lms_id or cfg["judge"]["lms_id"]
@@ -60,7 +65,8 @@ def main() -> None:
     # 응답 하나가 실행 전체를 죽이지 않게 한다 — 생성 단계에서 겪은 그대로다.
     rows, failed = [], 0
     with open(out, "w", newline="", encoding="utf-8-sig") as f:
-        w = csv.DictWriter(f, fieldnames=["sample_id", "auto_label", "abstain_with_claim", "reason"])
+        w = csv.DictWriter(f, fieldnames=["sample_id", "auto_label", "judge_label_raw",
+                                          "abstain_with_claim", "reason"])
         w.writeheader()
         for _, r in tqdm(sheet.iterrows(), total=len(sheet), desc="judging"):
             try:
@@ -68,10 +74,20 @@ def main() -> None:
             except Exception as exc:  # noqa: BLE001
                 failed += 1
                 label, reason, awc = "", f"{type(exc).__name__}: {exc}"[:300], False
-            w.writerow({"sample_id": r["sample_id"], "auto_label": label,
+            # 🚨 judge의 원본 라벨을 그대로 auto_label로 쓰면 안 된다.
+            # evaluate.py는 answerable=N 행에서 judge가 ABSTAIN을 내도 CORRECT로
+            # 매핑한다(답할 수 없는 문항에서는 보류가 곧 정답이기 때문이다).
+            # 매핑 없이 κ를 재면 사람이 CORRECT라 적은 것과 어긋나 실제보다 훨씬
+            # 낮은 κ가 나온다. 첫 실행에서 100건 중 ABSTAIN이 54건이었는데
+            # 표본의 N 문항이 60개였다 — 거의 전부 이 경우였다.
+            mapped = label
+            if str(r.get("answerable", "")).strip() == "N" and label in ("CORRECT", "ABSTAIN"):
+                mapped = "CORRECT"
+            w.writerow({"sample_id": r["sample_id"], "auto_label": mapped,
+                        "judge_label_raw": label,
                         "abstain_with_claim": awc, "reason": reason})
             f.flush()
-            rows.append(label)
+            rows.append(mapped)
 
     got = pd.Series([x for x in rows if x])
     print(f"\n완료. 실패 {failed}건")
