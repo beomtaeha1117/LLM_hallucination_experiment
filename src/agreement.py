@@ -118,7 +118,21 @@ def load_full_with_human(full_path: str, blind_filled_path: str) -> pd.DataFrame
     merged = full[["sample_id", "auto_label"]].merge(
         blind[["sample_id", "human_label"]], on="sample_id", how="inner"
     )
+    n_before = len(merged)
     merged = merged[(merged["auto_label"].str.strip() != "") & (merged["human_label"].str.strip() != "")]
+    if merged.empty:
+        # 빈 혼동행렬과 nan을 보여주면 도구가 고장난 것처럼 보인다. 실제로는
+        # 라벨링이 아직 안 끝난 것뿐이므로 그렇게 말한다.
+        n_filled = int((blind["human_label"].str.strip() != "").sum())
+        raise SystemExit(
+            f"비교할 쌍이 없습니다.\n"
+            f"  {blind_filled_path}: {len(blind)}건 중 human_label이 채워진 것 {n_filled}건\n"
+            f"  {full_path}: auto_label이 있는 것 "
+            f"{int((full['auto_label'].str.strip() != '').sum())}건\n"
+            f"  (sample_id로 합쳐진 행 {n_before}건)\n\n"
+            f"엑셀로 {blind_filled_path}를 열어 human_label 칸에\n"
+            f"CORRECT / HALLUCINATION / ABSTAIN 을 채운 뒤 다시 실행하십시오."
+        )
     return merged
 
 
