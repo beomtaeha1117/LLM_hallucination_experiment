@@ -76,6 +76,20 @@ RAW_COLUMNS = [
     "timestamp",
 ]
 
+# 실험 B는 위치 조작을 기록해야 하므로 컬럼이 다르다(docs/experiment-b-position.md §5).
+# A의 RAW_COLUMNS에 더하지 않는 이유: A는 이미 12,593행이 생성돼 있고, 헤더만
+# 늘리면 이어붙일 때 행과 어긋난다.
+RAW_COLUMNS_B = RAW_COLUMNS + [
+    "position",
+    "instruction_id",
+    "evidence_doc",
+    "evidence_char_offset",
+    "doc_a_chars",
+    "doc_b_chars",
+    "instr_char_index",
+    "instr_char_ratio",
+]
+
 EVAL_COLUMNS = RAW_COLUMNS + [
     "label",
     "decided_by",
@@ -229,3 +243,14 @@ def parse_final_answer(text: str) -> Tuple[str, bool, str]:
         return after.strip(), False, mode
 
     return text.strip(), False, "raw"
+
+
+EVAL_COLUMNS_B = RAW_COLUMNS_B + [
+    "label",
+    "decided_by",
+    "judge_votes",
+    "abstain_with_claim",
+    "response_kind",
+    "human_label",
+    "human_rater_id",
+]

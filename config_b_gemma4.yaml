@@ -1,0 +1,22 @@
+# 실험 B — 지시 위치 효과. 기준: docs/experiment-b-position.md
+#
+# 40문항 x 4조건(FRONT/MID/BACK/NOINSTR) x 3반복 = 480응답. 모델당 config 하나다
+# (한 config에 여러 모델을 넣으면 모델이 바뀔 때 JIT가 컨텍스트를 기본값으로 올린다).
+#
+# 🚨 실험 A와 결과를 합쳐 해석하지 않는다. 문항도 과제도 다르다.
+#    A는 세계지식 기반 보류, B는 제공 자료 기반 보류다.
+experiment: b
+run_id: b_gemma4
+mock: false
+questions_file: data/questions_b.csv
+server: {base_url: "http://localhost:1234/v1", api_key: "lm-studio", timeout_s: 300, max_retries: 3}
+generation: {temperature: 0.7, top_p: 0.9, max_tokens: 2048, reasoning_effort: "none"}
+repeats: 3
+seeds: [1, 2, 3]
+# NOINSTR은 위치 요인의 네 번째 수준이 아니다 — 이 조건만 지시가 없어 길이도 다르다.
+# 위치 효과 검정은 FRONT/MID/BACK 3수준끼리만 하고, NOINSTR은 사전 계획 대조로 따로 본다.
+conditions: [FRONT, MID, BACK, NOINSTR]
+models:
+  - {key: gemma4, lms_id: "gemma-4-12b-it-qat", quant: Q4_0_QAT, engine: llama.cpp}
+judge: {key: judge_model, lms_id: "devstral-small-2-24b-instruct-2512", temperature: 0.0, votes: 1}
+analysis: {alpha: 0.05, numeric_tolerance_pct: 1.0}

@@ -20,7 +20,13 @@ import yaml
 from tqdm import tqdm
 
 from src.client import LMStudioClient, MockClient
-from src.schema import RAW_COLUMNS, load_questions, parse_final_answer
+from src.experiment_b import (
+    POSITIONS,
+    build_user_message as build_b_message,
+    load_instruction as load_b_instruction,
+    position_metadata,
+)
+from src.schema import RAW_COLUMNS, RAW_COLUMNS_B, load_questions, parse_final_answer
 
 logger = logging.getLogger("run_experiment")
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
@@ -241,7 +247,20 @@ def run(config_path: str) -> None:
             max_retries=server_cfg.get("max_retries", 3),
         )
 
-    prompt_texts = {c: _load_prompt(c) for c in conditions}
+    # 실험 B는 조건이 프롬프트 파일이 아니라 지시의 **자리**다. system 프롬프트는
+    # 4조건 모두 P0_baseline으로 같고, 바뀌는 것은 user 메시지 조립뿐이다.
+    is_exp_b = str(config.get("experiment", "a")).lower() == "b"
+    if is_exp_b:
+        bad = [c for c in conditions if c not in POSITIONS]
+        if bad:
+            raise ValueError(f"실험 B의 조건은 {POSITIONS}여야 합니다. 잘못된 값: {bad}")
+        b_instruction = load_b_instruction()
+        prompt_texts = {c: _load_prompt("P0") for c in conditions}
+        columns = RAW_COLUMNS_B
+    else:
+        b_instruction = ""
+        prompt_texts = {c: _load_prompt(c) for c in conditions}
+        columns = RAW_COLUMNS
 
     total_planned = len(models) * len(conditions) * len(questions_df) * repeats
     written = 0
@@ -257,7 +276,7 @@ def run(config_path: str) -> None:
 
     file_exists = os.path.exists(raw_path) and os.path.getsize(raw_path) > 0
     csv_file = open(raw_path, "a", newline="", encoding="utf-8")
-    writer = csv.DictWriter(csv_file, fieldnames=RAW_COLUMNS)
+    writer = csv.DictWriter(csv_file, fieldnames=columns, extrasaction="ignore")
     if not file_exists:
         writer.writeheader()
         csv_file.flush()
@@ -270,7 +289,16 @@ def run(config_path: str) -> None:
                 system_prompt = prompt_texts[prompt_type]
                 for _, question in questions_df.iterrows():
                     question_id = question["question_id"]
-                    user_message = _build_user_message(question)
+                    if is_exp_b:
+                        user_message, _instr_idx = build_b_message(
+                            prompt_type, question.to_dict(), b_instruction
+                        )
+                        b_meta = position_metadata(
+                            prompt_type, question.to_dict(), user_message, _instr_idx
+                        )
+                    else:
+                        user_message = _build_user_message(question)
+                        b_meta = {}
                     for repeat in range(repeats):
                         key = (run_id, model_key, prompt_type, question_id, str(repeat), str(is_mock))
                         if key in done_keys:
@@ -363,6 +391,7 @@ def run(config_path: str) -> None:
                             "latency_ms": completion.latency_ms,
                             "finish_reason": completion.finish_reason,
                             "format_ok": format_ok,
+                            **b_meta,
                             "parse_mode": parse_mode,
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                         }
