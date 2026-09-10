@@ -43,6 +43,30 @@ def main() -> None:
     df = pd.concat(frames, ignore_index=True)
     print(f"대상 {len(run_dirs)}개 실행, 총 {len(df):,}행")
 
+    # 🚨 아직 도는 중인 실행에서 뽑으면 표본이 조건 쪽으로 치우친다. 실행은
+    # 조건 순서(P0->P1->...)로 돌기 때문에, 미완성 실행의 응답은 앞쪽 조건에만
+    # 존재한다. 2026-09-10에 gpt-oss가 도는 중에 뽑았다가 그 모델이 P0~P2에만
+    # 들어간 시트가 나왔다. 100건 라벨링은 몇 시간짜리라 그걸 치우친 표본에
+    # 쓰면 그 시간이 통째로 날아간다.
+    incomplete = []
+    for d, f in zip(run_dirs, frames):
+        planned = (
+            f["model_key"].nunique() * f["question_id"].nunique() * f["repeat"].nunique()
+            * f["prompt_type"].nunique()
+        )
+        got_conditions = f.groupby("prompt_type").size()
+        if got_conditions.min() < got_conditions.max() * 0.9:
+            incomplete.append((d, len(f), planned, dict(got_conditions)))
+    if incomplete:
+        print("\n🚨 아직 완주하지 않은 것으로 보이는 실행이 있습니다 —")
+        print("   조건별 건수가 고르지 않습니다. 실행이 조건 순서로 돌기 때문에,")
+        print("   지금 뽑으면 그 모델이 앞쪽 조건에만 들어간 시트가 나옵니다.")
+        for d, n, planned, per in incomplete:
+            print(f"   {d}: {n:,}행 / 조건별 {per}")
+        print("   실행이 끝난 뒤 같은 명령을 다시 돌리십시오(덮어쓰기 됩니다).")
+        if input("\n   그래도 계속하시겠습니까? [y/N] ").strip().lower() != "y":
+            raise SystemExit("중단했습니다.")
+
     # 반복 3회 중 하나만 쓴다. 같은 문항의 거의 같은 답을 세 번 매기는 것은
     # 사람 시간 낭비이고 κ를 부풀린다(독립된 판정이 아니기 때문이다).
     df = df[df["repeat"] == "0"]
