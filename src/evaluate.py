@@ -26,7 +26,7 @@ import pandas as pd
 import yaml
 from tqdm import tqdm
 
-from src.schema import EVAL_COLUMNS, load_questions
+from src.schema import EVAL_COLUMNS, EVAL_COLUMNS_B, load_questions
 
 from src.logging_setup import quiet_http_logs
 
@@ -599,7 +599,12 @@ def run(config_path: str) -> None:
 
     file_exists = os.path.exists(out_path) and os.path.getsize(out_path) > 0
     f_out = open(out_path, "a", newline="", encoding="utf-8")
-    writer = csv.DictWriter(f_out, fieldnames=EVAL_COLUMNS, extrasaction="ignore")
+    # 실험 B는 위치 조작 컬럼을 들고 있다. extrasaction="ignore"이므로 A의
+    # EVAL_COLUMNS를 쓰면 evidence_doc·instr_char_ratio 같은 칸이 **조용히**
+    # 버려지고, 명세 §6의 2차분석(position x evidence_doc)이 불가능해진다.
+    # 주분석은 position이 prompt_type에 담겨 있어 살아남으므로 더 눈에 안 띈다.
+    eval_columns = EVAL_COLUMNS_B if str(config.get("experiment", "a")).lower() == "b" else EVAL_COLUMNS
+    writer = csv.DictWriter(f_out, fieldnames=eval_columns, extrasaction="ignore")
     if not file_exists:
         writer.writeheader()
         f_out.flush()
