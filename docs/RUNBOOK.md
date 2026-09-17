@@ -272,6 +272,46 @@ P0에서 정답률 100%인 `hard_factual` 문항은 난이도 재배정(easy로 
 
 ---
 
+## 3-5. judge 선정 결과 — devstral 확정 (2026-09-17)
+
+사람 100건을 라벨링해 대조했다. **κ = 0.751 (substantial), 전체 일치 0.920.**
+기준선 0.6을 넘었으므로 `devstral-small-2-24b-instruct-2512`를 judge로 확정한다.
+
+| 파이프라인 \ 사람 | CORRECT | HALLUCINATION |
+|---|---|---|
+| CORRECT | 76 | **6** |
+| HALLUCINATION | 2 | 16 |
+
+**🚨 처음 잰 κ는 0.371이었고 그것은 측정이 틀린 것이었다.** 같은 실수를 반복하지
+않도록 원인을 적어둔다. 두 가지가 모두 judge에게 불리하게 작용했다.
+
+1. **judge에게 정보를 덜 줬다.** `tools/judge_on_sheet.py`가 라벨링 시트를 그대로
+   judge에 넘겼는데, 시트에는 사람이 읽을 것만 담겨 `why_unanswerable`과
+   `acceptable_answers`가 없다. `LMStudioJudge`는 그 두 칸을 보고 판정한다.
+   눈을 가린 채 판정시킨 셈이다.
+2. **파이프라인은 judge만 쓰지 않는다.** 표본 100건 중 **36건이 규칙 매칭(`match`)
+   으로 끝나고 judge까지 가지 않는다.** 100건을 전부 judge에 밀어 넣고 잰 값은
+   저장된 라벨의 신뢰도가 아니다. 한라산 "약 1,950m"(정답 1,947m)가 judge에게는
+   환각이고 파이프라인에서는 수치 허용오차 안이라 CORRECT인 것이 그 예다.
+
+**judge 선정의 κ는 반드시 `tools/agreement_pipeline.py`로 잰다** —
+`labeling_key.csv`로 표본을 원래 행에 잇고 `evaluated.csv`의 실제 라벨과 대조한다.
+GPU를 쓰지 않는다. `src/agreement.py`를 judge 출력에 직접 물리면 위 두 함정에 걸린다.
+
+### 함께 기록할 한계 — 환각 재현율 0.727
+
+사람이 환각이라 본 22건 중 파이프라인이 잡은 것은 16건이다. **놓친 6건은
+`S0021, S0025, S0039, S0049, S0051, S0070`이고, 그중 2건은 `abstain_with_claim`이
+참이었다.** 즉 judge는 알아봤는데 라벨 규칙이 버렸다 — `_evaluate_row`는
+answerable=N 행에서 judge가 `ABSTAIN`을 내면 그 플래그와 무관하게 `CORRECT`로
+확정한다(설계상 "분석 시점에 거른다"였다).
+
+**따라서 보고되는 환각률은 과소추정이다.** 논문에 이 방향과 크기를 적는다.
+`abstain_with_claim`을 라벨에 반영하면 재현율이 18/22(0.818)로 오르지만, 그 규칙이
+CORRECT 쪽에 거짓 양성을 얼마나 만드는지 먼저 확인하고 정한다.
+
+---
+
 ## 4. 본실험
 
 `config.yaml`을 편집한다. 반드시 바꿀 것:
