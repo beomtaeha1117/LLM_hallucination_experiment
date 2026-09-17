@@ -555,6 +555,13 @@ def run(config_path: str) -> None:
     # #1~#3), 구버전 문항 파일에는 없을 수 있다 — 있는 것만 병합하고 없으면
     # 빈 문자열 기본값으로 채워 하위 호환을 유지한다.
     optional_merge_cols = ["match_mode", "tolerance_pct", "reject_answers"]
+    # 🚨 실험 B의 자료는 context가 아니라 doc_a/doc_b에 있다. judge는 context에서만
+    # 근거 지문을 읽으므로, 이것을 안 실으면 **judge가 자료를 한 글자도 못 본 채**
+    # "제공된 자료에 근거가 있는가"를 판정하게 된다. 2026-09-17에 그렇게 돌린
+    # b_gemma4 480건이 전부 CORRECT로 나왔다 — 지어낸 수치를 확인할 자료가 없었다.
+    is_exp_b = str(config.get("experiment", "a")).lower() == "b"
+    if is_exp_b:
+        optional_merge_cols = optional_merge_cols + ["doc_a", "doc_b"]
     merge_cols = ["question_id", "acceptable_answers", "why_unanswerable"] + [
         c for c in optional_merge_cols if c in questions_df.columns
     ]
@@ -568,6 +575,14 @@ def run(config_path: str) -> None:
     # 없을 수 있다 — 하위 호환을 위해 없으면 빈 문자열로 채운다.
     if "parse_mode" not in raw_df.columns:
         raw_df["parse_mode"] = ""
+
+    if is_exp_b:
+        # 자료 두 개를 judge가 실제로 볼 수 있게 context로 합친다. 생성 때 쓴 마커와
+        # 같은 형태로 둬야 judge가 "자료 1에 있다/없다"를 그대로 대조할 수 있다.
+        raw_df["context"] = (
+            "<자료 1>\n" + raw_df["doc_a"].astype(str) + "\n</자료 1>\n\n"
+            "<자료 2>\n" + raw_df["doc_b"].astype(str) + "\n</자료 2>"
+        )
 
     lexicon_patterns = load_lexicon("data/abstention_lexicon.txt")
     false_premise_patterns = load_lexicon("data/false_premise_lexicon.txt")
@@ -603,7 +618,7 @@ def run(config_path: str) -> None:
     # EVAL_COLUMNS를 쓰면 evidence_doc·instr_char_ratio 같은 칸이 **조용히**
     # 버려지고, 명세 §6의 2차분석(position x evidence_doc)이 불가능해진다.
     # 주분석은 position이 prompt_type에 담겨 있어 살아남으므로 더 눈에 안 띈다.
-    eval_columns = EVAL_COLUMNS_B if str(config.get("experiment", "a")).lower() == "b" else EVAL_COLUMNS
+    eval_columns = EVAL_COLUMNS_B if is_exp_b else EVAL_COLUMNS
     writer = csv.DictWriter(f_out, fieldnames=eval_columns, extrasaction="ignore")
     if not file_exists:
         writer.writeheader()
